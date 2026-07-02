@@ -46,11 +46,11 @@ public class DealsRepository
     SELECT 
         ITEM_ID AS ItemId, EBAY_TITLE AS EbayTitle, LISTING_TYPE AS ListingType,
         EBAY_PRICE AS EbayPrice, SHIPPING_COST AS ShippingCost, EBAY_CONDITION AS EbayCondition,
-        AUCTION_END_TIME AS AuctionEndTime, EBAY_URL AS EbayUrl, COMP_CARD_NAME AS CompCardName,
-        COMP_SET_NAME AS CompSetName, COMP_PRICE AS CompPrice, DISCOUNT_PCT AS DiscountPct,
-        MATCH_CONFIDENCE AS MatchConfidence, DEAL_FOUND_AT AS DealFoundAt, COMP_URL AS CompUrl
+        AUCTION_END_TIME_LOCAL AS AuctionEndTimeLocal, EBAY_URL AS EbayUrl, COMP_CARD_NAME AS CompCardName,
+        COMP_SET_NAME AS CompSetName, COMP_URL AS CompUrl, COMP_PRICE AS CompPrice, DISCOUNT_PCT AS DiscountPct,
+        MATCH_CONFIDENCE AS MatchConfidence, DEAL_FOUND_AT AS DealFoundAt
     FROM V_DEALS_DETAIL
-    WHERE (AUCTION_END_TIME IS NULL OR AUCTION_END_TIME > SYSTIMESTAMP)
+    WHERE (AUCTION_END_TIME_LOCAL IS NULL OR AUCTION_END_TIME_LOCAL > SYSTIMESTAMP AT TIME ZONE 'America/Chicago')
     ORDER BY DEAL_FOUND_AT DESC";
         var results = await conn.QueryAsync<DealDetail>(sql);
         return results.ToList();

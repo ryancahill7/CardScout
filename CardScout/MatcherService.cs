@@ -1,5 +1,6 @@
 ﻿using CardScout.Core.Comps;
 using CardScout.Core.Data;
+using CardScout.Core.Ebay;
 using CardScout.Core.Matching;
 using CardScout.Core.Models;
 
@@ -12,8 +13,9 @@ public class MatcherService : BackgroundService
     private readonly CompCacheRepository _compCacheRepo;
     private readonly DealsRepository _dealsRepo;
     private readonly CompsClient _compsClient;
+    private readonly EbaySearchClient _ebay;
 
-    private const double MinConfidence = 0.80;
+    private const double MinConfidence = 0.55;
     private const decimal MinDiscountPct = 10m;
 
     public MatcherService(
@@ -21,13 +23,15 @@ public class MatcherService : BackgroundService
         EbayListingsRepository listingsRepo,
         CompCacheRepository compCacheRepo,
         DealsRepository dealsRepo,
-        CompsClient compsClient)
+        CompsClient compsClient,
+        EbaySearchClient ebay)
     {
         _logger = logger;
         _listingsRepo = listingsRepo;
         _compCacheRepo = compCacheRepo;
         _dealsRepo = dealsRepo;
         _compsClient = compsClient;
+        _ebay = ebay;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -105,7 +109,7 @@ public class MatcherService : BackgroundService
                 ManualOnlyPrice = detail.ManualOnlyPrice,
                 BoxOnlyPrice = detail.BoxOnlyPrice,
                 Bgs10Price = detail.Bgs10Price,
-                CompUrl = CompsClient.BuildSearchUrl(detail.ProductName, detail.ConsoleName), 
+                CompUrl = CompsClient.BuildSearchUrl(detail.ProductName, detail.ConsoleName),
                 LastUpdated = DateTime.UtcNow
             };
             await _compCacheRepo.UpsertAsync(compRecord);
@@ -142,6 +146,18 @@ public class MatcherService : BackgroundService
 
         if (discountPct >= MinDiscountPct)
         {
+            // Only now — right before recording a real deal — spend an extra eBay call
+            // to get the actual computed shipping cost, since this is a low-volume,
+            // high-value moment (only fires for genuine deals, not every listing scanned).
+            if (!listing.ShippingCost.HasValue)
+            {
+                var realShipping = await _ebay.GetActualShippingCostAsync(listing.ItemId);
+                if (realShipping.HasValue)
+                {
+                    await _listingsRepo.UpdateShippingCostAsync(listing.ItemId, realShipping.Value);
+                }
+            }
+
             await _dealsRepo.InsertDealAsync(new DealRecord
             {
                 ItemId = listing.ItemId,

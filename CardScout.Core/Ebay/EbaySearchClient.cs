@@ -126,4 +126,27 @@ public class EbaySearchClient
 
         return results;
     }
+    public async Task<decimal?> GetActualShippingCostAsync(string itemId)
+    {
+        var token = await _auth.GetTokenAsync();
+        var url = $"https://api.ebay.com/buy/browse/v1/item/{Uri.EscapeDataString(itemId)}";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.Add("X-EBAY-C-ENDUSERCTX", "contextualLocation=country=US,zip=77002");
+
+        var response = await _http.SendAsync(request);
+        if (!response.IsSuccessStatusCode)
+            return null;
+
+        var json = await response.Content.ReadAsStringAsync();
+        var doc = JsonDocument.Parse(json);
+
+        if (doc.RootElement.TryGetProperty("shippingOptions", out var opts) && opts.GetArrayLength() > 0 &&
+            opts[0].TryGetProperty("shippingCost", out var sc) && sc.TryGetProperty("value", out var val))
+        {
+            return decimal.Parse(val.GetString()!);
+        }
+        return null;
+    }
 }

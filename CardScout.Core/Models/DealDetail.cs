@@ -12,7 +12,7 @@ public class DealDetail
     public decimal EbayPrice { get; set; }
     public decimal? ShippingCost { get; set; }
     public string? EbayCondition { get; set; }
-    public DateTime? AuctionEndTime { get; set; }
+    public DateTime? AuctionEndTimeLocal { get; set; }
     public string EbayUrl { get; set; } = "";
     public string? CompCardName { get; set; }
     public string? CompSetName { get; set; }

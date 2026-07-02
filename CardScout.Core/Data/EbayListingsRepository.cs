@@ -49,7 +49,13 @@ public class EbayListingsRepository
         var results = await conn.QueryAsync<EbayListingRecord>(sql, new { Limit = limit });
         return results.ToList();
     }
-
+    public async Task UpdateShippingCostAsync(string itemId, decimal shippingCost)
+    {
+        using var conn = new OracleConnection(_connString);
+        await conn.OpenAsync();
+        const string sql = "UPDATE EBAY_LISTINGS SET SHIPPING_COST = :ShippingCost WHERE ITEM_ID = :ItemId";
+        await conn.ExecuteAsync(sql, new { ShippingCost = shippingCost, ItemId = itemId });
+    }
     public async Task UpdateMatchStatusAsync(string itemId, string status)
     {
         using var conn = new OracleConnection(_connString);
