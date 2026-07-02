@@ -3,8 +3,9 @@
 @{
     ViewData["Title"] = "Deals";
 }
+@Html.AntiForgeryToken()
 
-<h2>Deals — sorted by ending soonest</h2>
+<h2>Deals — sorted by most recent</h2>
 
 <div class="mb-3 d-flex gap-2 align-items-center">
     <select id="typeFilter" class="form-select form-select-sm" style="width:160px;">
@@ -34,6 +35,7 @@
 <table class="table table-striped table-sm" id="dealsTable">
     <thead>
         <tr>
+            <th>Action</th>
             <th class="col-ebay">Type</th>
             <th class="col-ebay">eBay Title</th>
             <th class="col-ebay">eBay Price</th>
@@ -41,7 +43,7 @@
             <th class="col-comp">Comp Name</th>
             <th class="col-comp">Comp Set</th>
             <th class="col-comp">Comp Price</th>
-            <th>Discount %</th>
+            <th>Net Profit</th>
             <th>Confidence</th>
             <th class="col-ebay">Ends</th>
             <th class="col-ebay">Ebay Link</th>
@@ -55,6 +57,11 @@
 
 @section Scripts {
     <script>
+        function getAntiForgeryToken() {
+            const el = document.querySelector('input[name="__RequestVerificationToken"]');
+            return el ? el.value : '';
+        }
+
         function applyFilters() {
             const type = document.getElementById('typeFilter').value;
             const minConf = parseFloat(document.getElementById('confidenceFilter').value);
@@ -76,17 +83,77 @@
 
         function bindConfidenceInputs() {
             document.querySelectorAll('.confidence-input').forEach(input => {
-                input.addEventListener('change', () => {
+                input.addEventListener('change', async () => {
                     const row = input.closest('tr');
                     const itemId = row.dataset.itemId;
                     const newValue = parseFloat(input.value);
-                    row.dataset.confidence = newValue.toFixed(2);
+                    const previousValue = row.dataset.confidence;
 
-                    fetch('/Deals?handler=UpdateConfidence', {
+                    const response = await fetch('/Deals?handler=UpdateConfidence', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'RequestVerificationToken': getAntiForgeryToken()
+                        },
                         body: JSON.stringify({ itemId: itemId, matchConfidence: newValue })
                     });
+
+                    if (response.ok) {
+                        row.dataset.confidence = newValue.toFixed(2);
+                    } else {
+                        input.value = previousValue;
+                        alert('Failed to save confidence — try again.');
+                        console.error('Confidence update failed:', response.status);
+                    }
+                });
+            });
+        }
+
+        function bindActionButtons() {
+            document.querySelectorAll('.keep-btn').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const row = btn.closest('tr');
+                    const itemId = row.dataset.itemId;
+
+                    const response = await fetch('/Deals?handler=UpdateStatus', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'RequestVerificationToken': getAntiForgeryToken()
+                        },
+                        body: JSON.stringify({ itemId: itemId, userStatus: 'KEPT' })
+                    });
+
+                    if (response.ok) {
+                        row.classList.add('row-kept');
+                    } else {
+                        alert('Failed to mark as kept — try again.');
+                        console.error('Keep update failed:', response.status);
+                    }
+                });
+            });
+
+            document.querySelectorAll('.remove-btn').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const row = btn.closest('tr');
+                    const itemId = row.dataset.itemId;
+
+                    const response = await fetch('/Deals?handler=UpdateStatus', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'RequestVerificationToken': getAntiForgeryToken()
+                        },
+                        body: JSON.stringify({ itemId: itemId, userStatus: 'REMOVED' })
+                    });
+
+                    if (response.ok) {
+                        row.remove();
+                        applyFilters();
+                    } else {
+                        alert('Failed to remove — try again.');
+                        console.error('Remove failed:', response.status);
+                    }
                 });
             });
         }
@@ -96,6 +163,7 @@
             const html = await response.text();
             document.getElementById('dealsBody').innerHTML = html;
             bindConfidenceInputs();
+            bindActionButtons();
             applyFilters();
             document.getElementById('lastRefreshed').textContent = 'Updated ' + new Date().toLocaleTimeString();
         }
@@ -105,7 +173,8 @@
         document.getElementById('discountFilter').addEventListener('change', applyFilters);
 
         bindConfidenceInputs();
+        bindActionButtons();
         applyFilters();
-        setInterval(refreshRows, 30000); // refresh every 30 seconds
+        setInterval(refreshRows, 30000);
     </script>
 }

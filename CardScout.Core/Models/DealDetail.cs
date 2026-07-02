@@ -23,4 +23,5 @@ public class DealDetail
     public string? CompUrl { get; set; }
     public decimal NetProfit { get; set; }
     public decimal NetProfitPct { get; set; }
+    public string UserStatus { get; set; } = "PENDING";
 }

@@ -2,6 +2,7 @@ using CardScout.Core.Data;
 using CardScout.Core.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.AspNetCore.Antiforgery; // add this
 
 namespace CardScout.Web.Pages;
 
@@ -21,7 +22,6 @@ public class DealsModel : PageModel
         Deals = await _dealsRepo.GetDealsDetailAsync();
     }
 
-    // Returns just the rows partial, called by JS on a timer
     public async Task<PartialViewResult> OnGetRowsAsync()
     {
         Deals = await _dealsRepo.GetDealsDetailAsync();
@@ -39,4 +39,17 @@ public class DealsModel : PageModel
         await _dealsRepo.UpdateConfidenceAsync(request.ItemId, request.MatchConfidence);
         return new JsonResult(new { success = true });
     }
+
+    public async Task<IActionResult> OnPostUpdateStatusAsync([FromBody] UpdateStatusRequest request)
+    {
+        await _dealsRepo.UpdateUserStatusAsync(request.ItemId, request.UserStatus);
+        return new JsonResult(new { success = true });
+    }
+
+    public class UpdateStatusRequest
+    {
+        public string ItemId { get; set; } = "";
+        public string UserStatus { get; set; } = "";
+    }
+
 }

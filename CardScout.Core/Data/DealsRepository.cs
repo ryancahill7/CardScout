@@ -48,17 +48,27 @@ public class DealsRepository
         using var conn = new OracleConnection(_connString);
         await conn.OpenAsync();
         const string sql = @"
-    SELECT 
-        ITEM_ID AS ItemId, EBAY_TITLE AS EbayTitle, LISTING_TYPE AS ListingType,
-        EBAY_PRICE AS EbayPrice, SHIPPING_COST AS ShippingCost, EBAY_CONDITION AS EbayCondition,
-        AUCTION_END_TIME_LOCAL AS AuctionEndTimeLocal, EBAY_URL AS EbayUrl, COMP_CARD_NAME AS CompCardName,
-        COMP_SET_NAME AS CompSetName, COMP_URL AS CompUrl, COMP_PRICE AS CompPrice, DISCOUNT_PCT AS DiscountPct,
-        MATCH_CONFIDENCE AS MatchConfidence, DEAL_FOUND_AT AS DealFoundAt, NET_PROFIT AS NetProfit, NET_PROFIT_PCT AS NetProfitPct
-    FROM V_DEALS_DETAIL
-    WHERE (AUCTION_END_TIME_LOCAL IS NULL OR AUCTION_END_TIME_LOCAL > SYSTIMESTAMP AT TIME ZONE 'America/Chicago')
-    ORDER BY DEAL_FOUND_AT DESC";
+        SELECT 
+            ITEM_ID AS ItemId, EBAY_TITLE AS EbayTitle, LISTING_TYPE AS ListingType,
+            EBAY_PRICE AS EbayPrice, SHIPPING_COST AS ShippingCost, EBAY_CONDITION AS EbayCondition,
+            AUCTION_END_TIME_LOCAL AS AuctionEndTimeLocal, EBAY_URL AS EbayUrl, COMP_CARD_NAME AS CompCardName,
+            COMP_SET_NAME AS CompSetName, COMP_URL AS CompUrl, COMP_PRICE AS CompPrice, DISCOUNT_PCT AS DiscountPct,
+            NET_PROFIT AS NetProfit, NET_PROFIT_PCT AS NetProfitPct,
+            MATCH_CONFIDENCE AS MatchConfidence, USER_STATUS AS UserStatus, DEAL_FOUND_AT AS DealFoundAt
+        FROM V_DEALS_DETAIL
+        WHERE (AUCTION_END_TIME_LOCAL IS NULL OR AUCTION_END_TIME_LOCAL > SYSTIMESTAMP AT TIME ZONE 'America/Chicago')
+          AND USER_STATUS != 'REMOVED'
+        ORDER BY DEAL_FOUND_AT DESC";
         var results = await conn.QueryAsync<DealDetail>(sql);
         return results.ToList();
+    }
+
+    public async Task UpdateUserStatusAsync(string itemId, string userStatus)
+    {
+        using var conn = new OracleConnection(_connString);
+        await conn.OpenAsync();
+        const string sql = "UPDATE DEALS SET USER_STATUS = :UserStatus WHERE ITEM_ID = :ItemId";
+        await conn.ExecuteAsync(sql, new { UserStatus = userStatus, ItemId = itemId });
     }
 
     public async Task UpdateConfidenceAsync(string itemId, decimal matchConfidence)
