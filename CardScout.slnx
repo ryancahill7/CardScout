@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="CardScout.Core/CardScout.Core.csproj" />
+  <Project Path="CardScout.Web/CardScout.Web.csproj" />
+  <Project Path="CardScout/CardScout.csproj" />
+</Solution>

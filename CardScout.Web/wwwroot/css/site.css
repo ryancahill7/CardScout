@@ -1,0 +1,116 @@
+body {
+    background-color: #0f1419;
+    color: #e6e6e6;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+.app-header {
+    background: linear-gradient(90deg, #1a2332 0%, #16213e 100%);
+    padding: 16px 0;
+    border-bottom: 2px solid #2d6a4f;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+.app-header-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #f5f5f5;
+}
+
+h2 {
+    color: #f5f5f5;
+    font-weight: 600;
+    margin-bottom: 1rem;
+}
+
+.table {
+    color: #e6e6e6;
+    background-color: #1a2332;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+    .table thead th {
+        background-color: #16213e;
+        color: #8fd19e;
+        border-bottom: 2px solid #2d6a4f;
+        font-weight: 600;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+.table-striped > tbody > tr:nth-of-type(odd) > * {
+    background-color: #1e2a3f;
+    color: #e6e6e6;
+}
+
+.table-striped > tbody > tr:nth-of-type(even) > * {
+    background-color: #1a2332;
+    color: #e6e6e6;
+}
+
+.table tbody tr:hover > * {
+    background-color: #26374f !important;
+}
+
+.form-select, .form-control {
+    background-color: #16213e;
+    color: #e6e6e6;
+    border: 1px solid #2d6a4f;
+}
+
+    .form-select:focus, .form-control:focus {
+        background-color: #16213e;
+        color: #e6e6e6;
+        border-color: #52b788;
+        box-shadow: 0 0 0 0.2rem rgba(82, 183, 136, 0.25);
+    }
+
+a {
+    color: #52b788;
+}
+
+    a:hover {
+        color: #74c69d;
+    }
+
+.text-muted {
+    color: #8a94a6 !important;
+}
+
+/* discount % coloring, applied via data-discount-tier in the row markup */
+.discount-high {
+    color: #52b788;
+    font-weight: 700;
+}
+
+.discount-mid {
+    color: #d4a24c;
+    font-weight: 600;
+}
+
+.discount-low {
+    color: #cccccc;
+}
+/* eBay-related columns: green tint */
+.col-ebay {
+    background-color: rgba(45, 106, 79, 0.15) !important;
+    border-left: 1px solid rgba(82, 183, 136, 0.2);
+}
+
+th.col-ebay {
+    background-color: rgba(45, 106, 79, 0.35) !important;
+    color: #8fd19e !important;
+}
+
+/* Comp/SportsCardsPro-related columns: red tint */
+.col-comp {
+    background-color: rgba(148, 42, 42, 0.15) !important;
+    border-left: 1px solid rgba(214, 92, 92, 0.2);
+}
+
+th.col-comp {
+    background-color: rgba(148, 42, 42, 0.35) !important;
+    color: #e6a3a3 !important;
+}

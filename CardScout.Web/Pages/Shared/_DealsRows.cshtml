@@ -1,0 +1,28 @@
+﻿@model List<CardScout.Core.Models.DealDetail>
+
+@foreach (var d in Model)
+{
+    var discountClass = d.DiscountPct >= 30 ? "discount-high" : d.DiscountPct >= 15 ? "discount-mid" : "discount-low";
+    var typeBadgeClass = d.ListingType == "AUCTION" ? "bg-warning text-dark" : "bg-success";
+
+    <tr data-item-id="@d.ItemId"
+        data-type="@d.ListingType"
+        data-confidence="@d.MatchConfidence.ToString("0.00")"
+        data-discount="@d.DiscountPct.ToString("0.0")">
+        <td class="col-ebay"><span class="badge @typeBadgeClass">@d.ListingType</span></td>
+        <td class="col-ebay">@d.EbayTitle</td>
+        <td class="col-ebay">$@d.EbayPrice.ToString("0.00")</td>
+        <td class="col-ebay">@(d.ShippingCost.HasValue ? "$" + d.ShippingCost.Value.ToString("0.00") : "—")</td>
+        <td class="col-comp">@d.CompCardName</td>
+        <td class="col-comp">@d.CompSetName</td>
+        <td class="col-comp">$@d.CompPrice.ToString("0.00")</td>
+        <td class="@discountClass">@d.DiscountPct.ToString("0.0")%</td>
+        <td>
+            <input type="number" step="0.01" min="0" max="1" class="form-control form-control-sm confidence-input"
+                   value="@d.MatchConfidence.ToString("0.00")" style="width: 70px;" />
+        </td>
+        <td class="col-ebay">@(d.AuctionEndTime?.ToString("MM/dd HH:mm") ?? "—")</td>
+        <td class="col-ebay"><a href="@d.EbayUrl" target="_blank">eBay →</a></td>
+        <td class="col-comp">@(string.IsNullOrEmpty(d.CompUrl) ? "—" : Html.Raw($"<a href='{d.CompUrl}' target='_blank'>Comp →</a>"))</td>
+    </tr>
+}

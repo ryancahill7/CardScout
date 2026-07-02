@@ -1,0 +1,111 @@
+﻿@page
+@model CardScout.Web.Pages.DealsModel
+@{
+    ViewData["Title"] = "Deals";
+}
+
+<h2>Deals — sorted by ending soonest</h2>
+
+<div class="mb-3 d-flex gap-2 align-items-center">
+    <select id="typeFilter" class="form-select form-select-sm" style="width:160px;">
+        <option value="">All Types</option>
+        <option value="AUCTION">Auction</option>
+        <option value="FIXED_PRICE">Fixed Price</option>
+    </select>
+
+    <select id="confidenceFilter" class="form-select form-select-sm" style="width:180px;">
+        <option value="0">Any Confidence</option>
+        <option value="0.6">0.60+</option>
+        <option value="0.75">0.75+</option>
+        <option value="0.9">0.90+</option>
+    </select>
+
+    <select id="discountFilter" class="form-select form-select-sm" style="width:160px;">
+        <option value="0">Any Discount</option>
+        <option value="10">10%+</option>
+        <option value="20">20%+</option>
+        <option value="30">30%+</option>
+    </select>
+
+    <span id="rowCount" class="text-muted ms-2"></span>
+    <span id="lastRefreshed" class="text-muted ms-auto small"></span>
+</div>
+
+<table class="table table-striped table-sm" id="dealsTable">
+    <thead>
+        <tr>
+            <th class="col-ebay">Type</th>
+            <th class="col-ebay">eBay Title</th>
+            <th class="col-ebay">eBay Price</th>
+            <th class="col-ebay">Shipping</th>
+            <th class="col-comp">Comp Name</th>
+            <th class="col-comp">Comp Set</th>
+            <th class="col-comp">Comp Price</th>
+            <th>Discount %</th>
+            <th>Confidence</th>
+            <th class="col-ebay">Ends</th>
+            <th class="col-ebay">Ebay Link</th>
+            <th class="col-comp">Comp Link</th>
+        </tr>
+    </thead>
+    <tbody id="dealsBody">
+        @await Html.PartialAsync("_DealsRows", Model.Deals)
+    </tbody>
+</table>
+
+@section Scripts {
+    <script>
+        function applyFilters() {
+            const type = document.getElementById('typeFilter').value;
+            const minConf = parseFloat(document.getElementById('confidenceFilter').value);
+            const minDiscount = parseFloat(document.getElementById('discountFilter').value);
+
+            let visibleCount = 0;
+            document.querySelectorAll('#dealsBody tr').forEach(row => {
+                const rowType = row.dataset.type || '';
+                const rowConf = parseFloat(row.dataset.confidence);
+                const rowDiscount = parseFloat(row.dataset.discount);
+
+                const visible = (!type || rowType === type) && rowConf >= minConf && rowDiscount >= minDiscount;
+                row.style.display = visible ? '' : 'none';
+                if (visible) visibleCount++;
+            });
+
+            document.getElementById('rowCount').textContent = `${visibleCount} deal(s) shown`;
+        }
+
+        function bindConfidenceInputs() {
+            document.querySelectorAll('.confidence-input').forEach(input => {
+                input.addEventListener('change', () => {
+                    const row = input.closest('tr');
+                    const itemId = row.dataset.itemId;
+                    const newValue = parseFloat(input.value);
+                    row.dataset.confidence = newValue.toFixed(2);
+
+                    fetch('/Deals?handler=UpdateConfidence', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ itemId: itemId, matchConfidence: newValue })
+                    });
+                });
+            });
+        }
+
+        async function refreshRows() {
+            const response = await fetch('/Deals?handler=Rows');
+            const html = await response.text();
+            document.getElementById('dealsBody').innerHTML = html;
+            bindConfidenceInputs();
+            applyFilters();
+            document.getElementById('lastRefreshed').textContent = 'Updated ' + new Date().toLocaleTimeString();
+        }
+
+        document.getElementById('typeFilter').addEventListener('change', applyFilters);
+        document.getElementById('confidenceFilter').addEventListener('change', applyFilters);
+        document.getElementById('discountFilter').addEventListener('change', applyFilters);
+
+        bindConfidenceInputs();
+        applyFilters();
+        setInterval(refreshRows, 30000); // refresh every 30 seconds
+    </script>
+}
