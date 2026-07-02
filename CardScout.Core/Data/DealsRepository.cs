@@ -17,10 +17,15 @@ public class DealsRepository
     {
         using var conn = new OracleConnection(_connString);
         await conn.OpenAsync();
-        const string sql = @"
-            INSERT INTO DEALS (ITEM_ID, COMP_PRODUCT_ID, COMP_PRICE_USED, DISCOUNT_PCT, MATCH_CONFIDENCE, CREATED_AT)
-            VALUES (:ItemId, :CompProductId, :CompPriceUsed, :DiscountPct, :MatchConfidence, SYSTIMESTAMP)";
-        await conn.ExecuteAsync(sql, deal);
+
+        const string checkSql = "SELECT COUNT(*) FROM DEALS WHERE ITEM_ID = :ItemId";
+        var exists = await conn.ExecuteScalarAsync<int>(checkSql, new { deal.ItemId });
+        if (exists > 0) return;
+
+        const string insertSql = @"
+        INSERT INTO DEALS (ITEM_ID, COMP_PRODUCT_ID, COMP_PRICE_USED, DISCOUNT_PCT, MATCH_CONFIDENCE, NET_PROFIT, NET_PROFIT_PCT, CREATED_AT)
+        VALUES (:ItemId, :CompProductId, :CompPriceUsed, :DiscountPct, :MatchConfidence, :NetProfit, :NetProfitPct, SYSTIMESTAMP)";
+        await conn.ExecuteAsync(insertSql, deal);
     }
 
     public async Task<List<DealRecord>> GetRecentDealsAsync(int limit = 50)
@@ -48,7 +53,7 @@ public class DealsRepository
         EBAY_PRICE AS EbayPrice, SHIPPING_COST AS ShippingCost, EBAY_CONDITION AS EbayCondition,
         AUCTION_END_TIME_LOCAL AS AuctionEndTimeLocal, EBAY_URL AS EbayUrl, COMP_CARD_NAME AS CompCardName,
         COMP_SET_NAME AS CompSetName, COMP_URL AS CompUrl, COMP_PRICE AS CompPrice, DISCOUNT_PCT AS DiscountPct,
-        MATCH_CONFIDENCE AS MatchConfidence, DEAL_FOUND_AT AS DealFoundAt
+        MATCH_CONFIDENCE AS MatchConfidence, DEAL_FOUND_AT AS DealFoundAt, NET_PROFIT AS NetProfit, NET_PROFIT_PCT AS NetProfitPct
     FROM V_DEALS_DETAIL
     WHERE (AUCTION_END_TIME_LOCAL IS NULL OR AUCTION_END_TIME_LOCAL > SYSTIMESTAMP AT TIME ZONE 'America/Chicago')
     ORDER BY DEAL_FOUND_AT DESC";

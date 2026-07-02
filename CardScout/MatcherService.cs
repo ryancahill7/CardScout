@@ -16,8 +16,21 @@ public class MatcherService : BackgroundService
     private readonly EbaySearchClient _ebay;
 
     private const double MinConfidence = 0.55;
-    private const decimal MinDiscountPct = 10m;
-
+    private const decimal EbayFeeRate = 0.1325m;
+    private const decimal EbayPerOrderFee = 0.40m;
+    private const decimal PackagingMaterialsCost = 0.75m; 
+    private const decimal MinNetProfitDollars = 10m;
+    private const decimal MinNetProfitPct = 15m;
+    private static decimal EstimateBuyShipping(decimal price)
+    {
+        return price switch
+        {
+            < 10m => 1.30m,   // plain tracked envelope (USPS Ground Advantage letter-ish rate)
+            < 30m => 3.50m,   // small bubble mailer
+            < 100m => 5.00m,  // padded mailer, toploader, team bag
+            _ => 7.50m         // higher-value item, more careful packaging
+        };
+    }
     public MatcherService(
         ILogger<MatcherService> logger,
         EbayListingsRepository listingsRepo,
@@ -144,17 +157,30 @@ public class MatcherService : BackgroundService
 
         var discountPct = (compPrice.Value - listing.CurrentPrice) / compPrice.Value * 100m;
 
-        if (discountPct >= MinDiscountPct)
+        // Buy-side: what you pay for the card + real or estimated shipping TO you
+        var buyShipping = listing.ShippingCost ?? EstimateBuyShipping(listing.CurrentPrice);
+        var acquisitionCost = listing.CurrentPrice + buyShipping;
+
+        // Sell-side: buyer covers your actual postage separately, so only the eBay fee
+        // on the sale (compPrice, treated as total buyer payment incl. their shipping charge)
+        // and your packaging materials come out of your pocket.
+        var netProceeds = compPrice.Value * (1 - EbayFeeRate) - EbayPerOrderFee - PackagingMaterialsCost;
+
+        var netProfit = netProceeds - acquisitionCost;
+        var netProfitPct = acquisitionCost == 0 ? 0 : netProfit / acquisitionCost * 100m;
+
+        if (netProfit >= MinNetProfitDollars && netProfitPct >= MinNetProfitPct)
         {
-            // Only now — right before recording a real deal — spend an extra eBay call
-            // to get the actual computed shipping cost, since this is a low-volume,
-            // high-value moment (only fires for genuine deals, not every listing scanned).
             if (!listing.ShippingCost.HasValue)
             {
                 var realShipping = await _ebay.GetActualShippingCostAsync(listing.ItemId);
                 if (realShipping.HasValue)
                 {
                     await _listingsRepo.UpdateShippingCostAsync(listing.ItemId, realShipping.Value);
+                    buyShipping = realShipping.Value;
+                    acquisitionCost = listing.CurrentPrice + buyShipping;
+                    netProfit = netProceeds - acquisitionCost;
+                    netProfitPct = acquisitionCost == 0 ? 0 : netProfit / acquisitionCost * 100m;
                 }
             }
 
@@ -165,15 +191,17 @@ public class MatcherService : BackgroundService
                 CompPriceUsed = compPrice.Value,
                 DiscountPct = discountPct,
                 MatchConfidence = (decimal)confidence,
+                NetProfit = netProfit,
+                NetProfitPct = netProfitPct,
                 CreatedAt = DateTime.UtcNow
             });
             _logger.LogInformation(
-                "DEAL FOUND ({Confidence:F2} confidence): {Title} — {Discount:F1}% under comp (${Comp} comp vs ${Price} price) — matched to {CompName}",
-                confidence, listing.Title, discountPct, compPrice.Value, listing.CurrentPrice, compRecord.ProductName);
+                "DEAL FOUND ({Confidence:F2} confidence): {Title} — ${NetProfit:F2} net profit ({NetProfitPct:F1}%) — matched to {CompName}",
+                confidence, listing.Title, netProfit, netProfitPct, compRecord.ProductName);
         }
         else
         {
-            _logger.LogDebug("MATCHED but below threshold ({Discount:F1}%): {Title}", discountPct, listing.Title);
+            _logger.LogDebug("MATCHED but unprofitable (${NetProfit:F2}, {NetProfitPct:F1}%): {Title}", netProfit, netProfitPct, listing.Title);
         }
 
         await _listingsRepo.UpdateMatchStatusAsync(listing.ItemId, "MATCHED");

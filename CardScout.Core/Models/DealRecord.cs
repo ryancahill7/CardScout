@@ -11,5 +11,7 @@ public class DealRecord
     public decimal CompPriceUsed { get; set; }
     public decimal DiscountPct { get; set; }
     public decimal MatchConfidence { get; set; }
+    public decimal NetProfit { get; set; }       
+    public decimal NetProfitPct { get; set; }     
     public DateTime CreatedAt { get; set; }
 }

@@ -21,4 +21,6 @@ public class DealDetail
     public decimal MatchConfidence { get; set; }
     public DateTime DealFoundAt { get; set; }
     public string? CompUrl { get; set; }
+    public decimal NetProfit { get; set; }
+    public decimal NetProfitPct { get; set; }
 }
