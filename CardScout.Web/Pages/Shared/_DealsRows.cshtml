@@ -5,12 +5,12 @@
     var discountClass = d.NetProfitPct >= 30 ? "discount-high" : d.NetProfitPct >= 15 ? "discount-mid" : "discount-low";
     var typeBadgeClass = d.ListingType == "AUCTION" ? "bg-warning text-dark" : "bg-success";
     var keptClass = d.UserStatus == "KEPT" ? "row-kept" : "";
-
+    var profitClass = d.IsProfitable == "N" ? "row-unprofitable" : "";
     <tr data-item-id="@d.ItemId"
         data-type="@d.ListingType"
         data-confidence="@d.MatchConfidence.ToString("0.00")"
         data-discount="@d.DiscountPct.ToString("0.0")"
-        class="@keptClass">
+        class="@keptClass @profitClass">
         <td>
             <button class="btn btn-sm btn-outline-success keep-btn" title="Keep">✓</button>
             <button class="btn btn-sm btn-outline-danger remove-btn" title="Remove">✗</button>

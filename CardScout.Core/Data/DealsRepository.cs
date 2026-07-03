@@ -23,8 +23,8 @@ public class DealsRepository
         if (exists > 0) return;
 
         const string insertSql = @"
-        INSERT INTO DEALS (ITEM_ID, COMP_PRODUCT_ID, COMP_PRICE_USED, DISCOUNT_PCT, MATCH_CONFIDENCE, NET_PROFIT, NET_PROFIT_PCT, CREATED_AT)
-        VALUES (:ItemId, :CompProductId, :CompPriceUsed, :DiscountPct, :MatchConfidence, :NetProfit, :NetProfitPct, SYSTIMESTAMP)";
+        INSERT INTO DEALS (ITEM_ID, COMP_PRODUCT_ID, COMP_PRICE_USED, DISCOUNT_PCT, MATCH_CONFIDENCE, NET_PROFIT, NET_PROFIT_PCT, IS_PROFITABLE, CREATED_AT)
+        VALUES (:ItemId, :CompProductId, :CompPriceUsed, :DiscountPct, :MatchConfidence, :NetProfit, :NetProfitPct, :IsProfitable, SYSTIMESTAMP)";
         await conn.ExecuteAsync(insertSql, deal);
     }
 
@@ -43,22 +43,28 @@ public class DealsRepository
         var results = await conn.QueryAsync<DealRecord>(sql, new { Limit = limit });
         return results.ToList();
     }
-    public async Task<List<DealDetail>> GetDealsDetailAsync()
+    public async Task<List<DealDetail>> GetDealsDetailAsync(bool onlyProfitable = true)
     {
         using var conn = new OracleConnection(_connString);
         await conn.OpenAsync();
-        const string sql = @"
+        var sql = @"
         SELECT 
             ITEM_ID AS ItemId, EBAY_TITLE AS EbayTitle, LISTING_TYPE AS ListingType,
             EBAY_PRICE AS EbayPrice, SHIPPING_COST AS ShippingCost, EBAY_CONDITION AS EbayCondition,
             AUCTION_END_TIME_LOCAL AS AuctionEndTimeLocal, EBAY_URL AS EbayUrl, COMP_CARD_NAME AS CompCardName,
             COMP_SET_NAME AS CompSetName, COMP_URL AS CompUrl, COMP_PRICE AS CompPrice, DISCOUNT_PCT AS DiscountPct,
             NET_PROFIT AS NetProfit, NET_PROFIT_PCT AS NetProfitPct,
-            MATCH_CONFIDENCE AS MatchConfidence, USER_STATUS AS UserStatus, DEAL_FOUND_AT AS DealFoundAt
+            MATCH_CONFIDENCE AS MatchConfidence, USER_STATUS AS UserStatus, IS_PROFITABLE AS IsProfitable,
+            DEAL_FOUND_AT AS DealFoundAt
         FROM V_DEALS_DETAIL
         WHERE (AUCTION_END_TIME_LOCAL IS NULL OR AUCTION_END_TIME_LOCAL > SYSTIMESTAMP AT TIME ZONE 'America/Chicago')
-          AND USER_STATUS != 'REMOVED'
-        ORDER BY DEAL_FOUND_AT DESC";
+          AND USER_STATUS != 'REMOVED'";
+
+        if (onlyProfitable)
+            sql += " AND IS_PROFITABLE = 'Y'";
+
+        sql += " ORDER BY DEAL_FOUND_AT DESC";
+
         var results = await conn.QueryAsync<DealDetail>(sql);
         return results.ToList();
     }

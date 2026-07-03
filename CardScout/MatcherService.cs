@@ -19,8 +19,8 @@ public class MatcherService : BackgroundService
     private const decimal EbayFeeRate = 0.1325m;
     private const decimal EbayPerOrderFee = 0.40m;
     private const decimal PackagingMaterialsCost = 0.75m; 
-    private const decimal MinNetProfitDollars = 10m;
-    private const decimal MinNetProfitPct = 15m;
+    private const decimal MinNetProfitDollars = 2m;
+    private const decimal MinNetProfitPct = 5m;
     private static decimal EstimateBuyShipping(decimal price)
     {
         return price switch
@@ -62,6 +62,7 @@ public class MatcherService : BackgroundService
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Failed to process listing {ItemId}", listing.ItemId);
+                    await _listingsRepo.UpdateMatchStatusAsync(listing.ItemId, "ERROR"); // add this
                 }
             }
 
@@ -156,45 +157,48 @@ public class MatcherService : BackgroundService
         }
 
         var discountPct = (compPrice.Value - listing.CurrentPrice) / compPrice.Value * 100m;
-
-        // Buy-side: what you pay for the card + real or estimated shipping TO you
+        discountPct = Math.Clamp(discountPct, -99999.99m, 99999.99m);
         var buyShipping = listing.ShippingCost ?? EstimateBuyShipping(listing.CurrentPrice);
         var acquisitionCost = listing.CurrentPrice + buyShipping;
 
-        // Sell-side: buyer covers your actual postage separately, so only the eBay fee
-        // on the sale (compPrice, treated as total buyer payment incl. their shipping charge)
-        // and your packaging materials come out of your pocket.
         var netProceeds = compPrice.Value * (1 - EbayFeeRate) - EbayPerOrderFee - PackagingMaterialsCost;
 
         var netProfit = netProceeds - acquisitionCost;
         var netProfitPct = acquisitionCost == 0 ? 0 : netProfit / acquisitionCost * 100m;
+        netProfitPct = Math.Clamp(netProfitPct, -99999.99m, 99999.99m);
 
-        if (netProfit >= MinNetProfitDollars && netProfitPct >= MinNetProfitPct)
+        var isProfitable = netProfit >= MinNetProfitDollars && netProfitPct >= MinNetProfitPct;
+
+        if (!listing.ShippingCost.HasValue)
         {
-            if (!listing.ShippingCost.HasValue)
+            var realShipping = await _ebay.GetActualShippingCostAsync(listing.ItemId);
+            if (realShipping.HasValue)
             {
-                var realShipping = await _ebay.GetActualShippingCostAsync(listing.ItemId);
-                if (realShipping.HasValue)
-                {
-                    await _listingsRepo.UpdateShippingCostAsync(listing.ItemId, realShipping.Value);
-                    buyShipping = realShipping.Value;
-                    acquisitionCost = listing.CurrentPrice + buyShipping;
-                    netProfit = netProceeds - acquisitionCost;
-                    netProfitPct = acquisitionCost == 0 ? 0 : netProfit / acquisitionCost * 100m;
-                }
+                await _listingsRepo.UpdateShippingCostAsync(listing.ItemId, realShipping.Value);
+                buyShipping = realShipping.Value;
+                acquisitionCost = listing.CurrentPrice + buyShipping;
+                netProfit = netProceeds - acquisitionCost;
+                netProfitPct = acquisitionCost == 0 ? 0 : netProfit / acquisitionCost * 100m;
+                netProfitPct = Math.Clamp(netProfitPct, -99999.99m, 99999.99m);
+                isProfitable = netProfit >= MinNetProfitDollars && netProfitPct >= MinNetProfitPct;
             }
+        }
 
-            await _dealsRepo.InsertDealAsync(new DealRecord
-            {
-                ItemId = listing.ItemId,
-                CompProductId = compRecord.ProductId ?? "",
-                CompPriceUsed = compPrice.Value,
-                DiscountPct = discountPct,
-                MatchConfidence = (decimal)confidence,
-                NetProfit = netProfit,
-                NetProfitPct = netProfitPct,
-                CreatedAt = DateTime.UtcNow
-            });
+        await _dealsRepo.InsertDealAsync(new DealRecord
+        {
+            ItemId = listing.ItemId,
+            CompProductId = compRecord.ProductId ?? "",
+            CompPriceUsed = compPrice.Value,
+            DiscountPct = discountPct,
+            MatchConfidence = (decimal)confidence,
+            NetProfit = netProfit,
+            NetProfitPct = netProfitPct,
+            IsProfitable = isProfitable ? "Y" : "N",
+            CreatedAt = DateTime.UtcNow
+        });
+
+        if (isProfitable)
+        {
             _logger.LogInformation(
                 "DEAL FOUND ({Confidence:F2} confidence): {Title} — ${NetProfit:F2} net profit ({NetProfitPct:F1}%) — matched to {CompName}",
                 confidence, listing.Title, netProfit, netProfitPct, compRecord.ProductName);

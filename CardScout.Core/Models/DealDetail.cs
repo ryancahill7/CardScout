@@ -24,4 +24,5 @@ public class DealDetail
     public decimal NetProfit { get; set; }
     public decimal NetProfitPct { get; set; }
     public string UserStatus { get; set; } = "PENDING";
+    public string IsProfitable { get; set; } = "Y";
 }

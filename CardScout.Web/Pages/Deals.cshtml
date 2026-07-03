@@ -7,7 +7,7 @@
 
 <h2>Deals — sorted by most recent</h2>
 
-<div class="mb-3 d-flex gap-2 align-items-center">
+<div class="mb-3 d-flex gap-2 align-items-center flex-wrap">
     <select id="typeFilter" class="form-select form-select-sm" style="width:160px;">
         <option value="">All Types</option>
         <option value="AUCTION">Auction</option>
@@ -27,6 +27,11 @@
         <option value="20">20%+</option>
         <option value="30">30%+</option>
     </select>
+
+    <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" id="showAllToggle" @(Model.ShowAll ? "checked" : "")>
+        <label class="form-check-label text-muted" for="showAllToggle">Show unprofitable matches too</label>
+    </div>
 
     <span id="rowCount" class="text-muted ms-2"></span>
     <span id="lastRefreshed" class="text-muted ms-auto small"></span>
@@ -159,7 +164,8 @@
         }
 
         async function refreshRows() {
-            const response = await fetch('/Deals?handler=Rows');
+            const showAll = document.getElementById('showAllToggle').checked;
+            const response = await fetch(`/Deals?handler=Rows&showAll=${showAll}`);
             const html = await response.text();
             document.getElementById('dealsBody').innerHTML = html;
             bindConfidenceInputs();
@@ -171,6 +177,16 @@
         document.getElementById('typeFilter').addEventListener('change', applyFilters);
         document.getElementById('confidenceFilter').addEventListener('change', applyFilters);
         document.getElementById('discountFilter').addEventListener('change', applyFilters);
+
+        document.getElementById('showAllToggle').addEventListener('change', (e) => {
+            const url = new URL(window.location);
+            if (e.target.checked) {
+                url.searchParams.set('showAll', 'true');
+            } else {
+                url.searchParams.delete('showAll');
+            }
+            window.location = url;
+        });
 
         bindConfidenceInputs();
         bindActionButtons();

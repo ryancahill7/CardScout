@@ -7,7 +7,6 @@ public static class MatchScorer
         var candidateFull = $"{candidateConsoleName} {candidateProductName}".ToLower();
         var ebayLower = ebayParsed.CleanedForSearch.ToLower();
 
-        // Base score: token overlap (same as before)
         var ebayTokens = ebayLower.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
         var candidateTokens = candidateFull.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
         double baseScore = 0;
@@ -18,7 +17,6 @@ public static class MatchScorer
             baseScore = union == 0 ? 0 : (double)overlap / union;
         }
 
-        // Card number: strong positive signal if it matches, strong NEGATIVE if both have numbers and they differ
         if (!string.IsNullOrEmpty(ebayParsed.CardNumber))
         {
             var candidateHasNumber = candidateProductName.Contains('#');
@@ -27,24 +25,36 @@ public static class MatchScorer
                 : "";
 
             if (candidateNumber == ebayParsed.CardNumber)
-                baseScore += 0.25; // strong boost — this is the single best disambiguator
+                baseScore += 0.25;
             else if (candidateHasNumber && candidateNumber != ebayParsed.CardNumber)
-                baseScore -= 0.35; // strong penalty — different card number means different card, full stop
+                baseScore -= 0.35;
         }
 
-        // Parallel keywords: penalize if eBay title mentions a parallel the candidate doesn't have, or vice versa
         var candidateLower = candidateProductName.ToLower();
-        var candidateHasAnyParallelMarker = candidateLower.Contains('[') && candidateLower.Contains(']');
+
+        // Strongest signal: if eBay title has a specific color modifier, candidate MUST match it exactly.
+        // A color mismatch here means a different, differently-priced parallel — treat as a hard miss.
+        if (!string.IsNullOrEmpty(ebayParsed.ColorModifier))
+        {
+            if (candidateLower.Contains(ebayParsed.ColorModifier))
+                baseScore += 0.20;
+            else if (candidateLower.Contains('[') && candidateLower.Contains(']'))
+                baseScore -= 0.50; // candidate has SOME color/parallel bracket but not the right one
+        }
+        else
+        {
+            // eBay title has no specific color — heavily penalize candidates that DO have a
+            // bracketed color/parallel modifier, since that's a different, likely mispriced variant.
+            var candidateHasAnyParallelMarker = candidateLower.Contains('[') && candidateLower.Contains(']');
+            if (candidateHasAnyParallelMarker)
+                baseScore -= 0.30; // raised from 0.10 — this was too weak to prevent bad matches
+        }
 
         if (ebayParsed.ParallelKeywords.Any())
         {
             var matchedParallel = ebayParsed.ParallelKeywords.Any(p => candidateLower.Contains(p));
             if (!matchedParallel)
-                baseScore -= 0.15; // eBay title calls out a parallel this candidate doesn't have
-        }
-        else if (candidateHasAnyParallelMarker)
-        {
-            baseScore -= 0.10; // candidate IS a parallel but eBay title didn't mention one — likely base card being compared to a parallel
+                baseScore -= 0.15;
         }
 
         return Math.Clamp(baseScore, 0, 1);
