@@ -36,7 +36,7 @@ public class EbaySearchClient
         string filter;
         if (buyingOption == "AUCTION")
         {
-            var endBefore = DateTime.UtcNow.AddHours(1).ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+            var endBefore = DateTime.UtcNow.AddHours(3).ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
             filter = Uri.EscapeDataString($"buyingOptions:{{AUCTION}},itemEndDate:[..{endBefore}]");
         }
         else
@@ -126,6 +126,83 @@ public class EbaySearchClient
 
         return results;
     }
+    public async Task<List<EbayListing>> GetBroadSweepAsync(int limit = 50)
+    {
+        var token = await _auth.GetTokenAsync();
+
+        var aspectFilter = Uri.EscapeDataString("categoryId:212,Sport:{Baseball}");
+
+        var url = "https://api.ebay.com/buy/browse/v1/item_summary/search" +
+                   $"?q=baseball+card" +
+                   $"&category_ids={BaseballCardsCategoryId}" +
+                   $"&aspect_filter={aspectFilter}" +
+                   "&sort=newlyListed" +
+                   $"&limit={limit}";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.Add("X-EBAY-C-MARKETPLACE-ID", "EBAY_US");
+        request.Headers.Add("X-EBAY-C-ENDUSERCTX", "contextualLocation=country=US,zip=77002");
+
+        var response = await _http.SendAsync(request);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync();
+            throw new HttpRequestException($"eBay API error {response.StatusCode}: {errorBody}");
+        }
+
+        var json = await response.Content.ReadAsStringAsync();
+        var doc = JsonDocument.Parse(json);
+
+        var results = new List<EbayListing>();
+        if (!doc.RootElement.TryGetProperty("itemSummaries", out var items))
+            return results;
+
+        foreach (var item in items.EnumerateArray())
+        {
+            try
+            {
+                var itemId = item.GetProperty("itemId").GetString()!;
+                var title = item.GetProperty("title").GetString()!;
+
+                decimal price = 0;
+                if (item.TryGetProperty("price", out var priceEl) && priceEl.TryGetProperty("value", out var valueEl))
+                    price = decimal.Parse(valueEl.GetString()!);
+                else if (item.TryGetProperty("currentBidPrice", out var bidEl) && bidEl.TryGetProperty("value", out var bidValueEl))
+                    price = decimal.Parse(bidValueEl.GetString()!);
+
+                var endTime = item.TryGetProperty("itemEndDate", out var end) ? end.GetDateTime() : (DateTime?)null;
+                var itemUrl = item.TryGetProperty("itemWebUrl", out var urlEl) ? urlEl.GetString()! : "";
+                var condition = item.TryGetProperty("condition", out var condEl) ? condEl.GetString() : null;
+
+                var listingType = "FIXED_PRICE";
+                if (item.TryGetProperty("buyingOptions", out var boArr))
+                {
+                    foreach (var bo in boArr.EnumerateArray())
+                    {
+                        if (bo.GetString() == "AUCTION") { listingType = "AUCTION"; break; }
+                    }
+                }
+
+                decimal? shippingCost = null;
+                if (item.TryGetProperty("shippingOptions", out var shippingArr) && shippingArr.GetArrayLength() > 0)
+                {
+                    var firstOption = shippingArr[0];
+                    if (firstOption.TryGetProperty("shippingCost", out var scEl) && scEl.TryGetProperty("value", out var scValEl))
+                        shippingCost = decimal.Parse(scValEl.GetString()!);
+                }
+
+                results.Add(new EbayListing(itemId, title, price, endTime, itemUrl, condition, listingType, shippingCost));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Skipped one item due to parse error: {ex.Message}");
+            }
+        }
+
+        return results;
+    }
     public async Task<decimal?> GetActualShippingCostAsync(string itemId)
     {
         var token = await _auth.GetTokenAsync();
@@ -148,5 +225,127 @@ public class EbaySearchClient
             return decimal.Parse(val.GetString()!);
         }
         return null;
+    }
+    public async Task<List<EbayListing>> GetNewestListingsAsync(string playerName, int limit = 20)
+    {
+        var token = await _auth.GetTokenAsync();
+
+        var q = Uri.EscapeDataString(playerName);
+        var aspectFilter = Uri.EscapeDataString("categoryId:212,Sport:{Baseball}");
+
+        // No buyingOptions filter at all — "any kind" means auctions, fixed price, everything
+        var url = "https://api.ebay.com/buy/browse/v1/item_summary/search" +
+                   $"?q={q}" +
+                   $"&category_ids={BaseballCardsCategoryId}" +
+                   $"&aspect_filter={aspectFilter}" +
+                   "&sort=newlyListed" +
+                   $"&limit={limit}";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.Add("X-EBAY-C-MARKETPLACE-ID", "EBAY_US");
+        request.Headers.Add("X-EBAY-C-ENDUSERCTX", "contextualLocation=country=US,zip=77002");
+
+        var response = await _http.SendAsync(request);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync();
+            throw new HttpRequestException($"eBay API error {response.StatusCode}: {errorBody}");
+        }
+
+        var json = await response.Content.ReadAsStringAsync();
+        var doc = JsonDocument.Parse(json);
+
+        var results = new List<EbayListing>();
+        if (!doc.RootElement.TryGetProperty("itemSummaries", out var items))
+            return results;
+
+        foreach (var item in items.EnumerateArray())
+        {
+            try
+            {
+                var itemId = item.GetProperty("itemId").GetString()!;
+                var title = item.GetProperty("title").GetString()!;
+
+                // Mixed result set (auctions + fixed price) — try fixed "price" first,
+                // fall back to auction "currentBidPrice" since only one will be present per item
+                decimal price = 0;
+                if (item.TryGetProperty("price", out var priceEl) &&
+                    priceEl.TryGetProperty("value", out var valueEl))
+                {
+                    price = decimal.Parse(valueEl.GetString()!);
+                }
+                else if (item.TryGetProperty("currentBidPrice", out var bidEl) &&
+                         bidEl.TryGetProperty("value", out var bidValueEl))
+                {
+                    price = decimal.Parse(bidValueEl.GetString()!);
+                }
+
+                var itemUrl = item.TryGetProperty("itemWebUrl", out var urlEl) ? urlEl.GetString()! : "";
+                var condition = item.TryGetProperty("condition", out var condEl) ? condEl.GetString() : null;
+
+                var listingType = "FIXED_PRICE";
+                if (item.TryGetProperty("buyingOptions", out var boArr))
+                {
+                    foreach (var bo in boArr.EnumerateArray())
+                    {
+                        if (bo.GetString() == "AUCTION") { listingType = "AUCTION"; break; }
+                    }
+                }
+
+                decimal? shippingCost = null;
+                if (item.TryGetProperty("shippingOptions", out var shippingArr) && shippingArr.GetArrayLength() > 0)
+                {
+                    var firstOption = shippingArr[0];
+                    if (firstOption.TryGetProperty("shippingCost", out var scEl) &&
+                        scEl.TryGetProperty("value", out var scValEl))
+                    {
+                        shippingCost = decimal.Parse(scValEl.GetString()!);
+                    }
+                }
+
+                results.Add(new EbayListing(itemId, title, price, null, itemUrl, condition, listingType, shippingCost));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Skipped one item due to parse error: {ex.Message}");
+            }
+        }
+
+        return results;
+    }
+    public async Task<bool> IsListingStillActiveAsync(string itemId)
+    {
+        var token = await _auth.GetTokenAsync();
+        var url = $"https://api.ebay.com/buy/browse/v1/item/{Uri.EscapeDataString(itemId)}?fieldgroups=COMPACT";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.Add("X-EBAY-C-ENDUSERCTX", "contextualLocation=country=US,zip=77002");
+
+        var response = await _http.SendAsync(request);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return false;
+
+        if (!response.IsSuccessStatusCode)
+            return true; // unknown/transient error — don't falsely mark sold
+
+        var json = await response.Content.ReadAsStringAsync();
+        var doc = JsonDocument.Parse(json);
+
+        // Check estimatedAvailabilities array for OUT_OF_STOCK / availability count
+        if (doc.RootElement.TryGetProperty("estimatedAvailabilities", out var availArr) &&
+            availArr.GetArrayLength() > 0)
+        {
+            var status = availArr[0].TryGetProperty("estimatedAvailabilityStatus", out var statusEl)
+                ? statusEl.GetString() : null;
+
+            if (status == "OUT_OF_STOCK")
+                return false;
+        }
+
+        return true;
     }
 }

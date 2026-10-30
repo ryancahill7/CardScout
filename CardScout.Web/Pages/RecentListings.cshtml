@@ -1,0 +1,64 @@
+﻿@page
+@model CardScout.Web.Pages.RecentListingsModel
+@{
+    ViewData["Title"] = "Recent Listings";
+}
+
+<h2>Recent Listings — Mason Miller & Craig Biggio</h2>
+<p class="text-muted">Sorted by newest listed first, any listing type, no comp matching.</p>
+
+<div class="mb-3 d-flex gap-2 align-items-center">
+    <select id="playerFilter" class="form-select form-select-sm" style="width:200px;">
+        <option value="">All Players</option>
+        <option value="Mason Miller">Mason Miller</option>
+        <option value="Craig Biggio">Craig Biggio</option>
+    </select>
+    <span id="rowCount" class="text-muted ms-2"></span>
+</div>
+
+<table class="table table-striped table-sm">
+    <thead>
+        <tr>
+            <th>Type</th>
+            <th>Player</th>
+            <th>Title</th>
+            <th>Price</th>
+            <th>Condition</th>
+            <th>Listed</th>
+            <th>Link</th>
+        </tr>
+    </thead>
+    <tbody id="listingsBody">
+        @await Html.PartialAsync("_RecentListingsRows", Model.Listings)
+    </tbody>
+</table>
+
+@section Scripts {
+    <script>
+        function applyFilter() {
+            const player = document.getElementById('playerFilter').value;
+            let visibleCount = 0;
+
+            document.querySelectorAll('#listingsBody tr').forEach(row => {
+                const rowPlayer = row.dataset.player || '';
+                const visible = !player || rowPlayer === player;
+                row.style.display = visible ? '' : 'none';
+                if (visible) visibleCount++;
+            });
+
+            document.getElementById('rowCount').textContent = `${visibleCount} listing(s) shown`;
+        }
+
+        async function refreshRows() {
+            const response = await fetch('/RecentListings?handler=Rows');
+            const html = await response.text();
+            document.getElementById('listingsBody').innerHTML = html;
+            applyFilter();
+        }
+
+        document.getElementById('playerFilter').addEventListener('change', applyFilter);
+
+        applyFilter();
+        setInterval(refreshRows, 30000);
+    </script>
+}

@@ -30,8 +30,27 @@ public class EbayListingsRepository
         await conn.ExecuteAsync(insertSql, listing);
         return true;
     }
+    public async Task<List<string>> GetActiveDealItemIdsAsync()
+    {
+        using var conn = new OracleConnection(_connString);
+        await conn.OpenAsync();
+        const string sql = @"
+        SELECT DISTINCT e.ITEM_ID
+        FROM EBAY_LISTINGS e
+        JOIN DEALS d ON d.ITEM_ID = e.ITEM_ID
+        WHERE e.MATCH_STATUS != 'SOLD'";
+        var results = await conn.QueryAsync<string>(sql);
+        return results.ToList();
+    }
 
-    public async Task<List<EbayListingRecord>> GetPendingAsync(int limit = 10)
+    public async Task MarkSoldAsync(string itemId)
+    {
+        using var conn = new OracleConnection(_connString);
+        await conn.OpenAsync();
+        const string sql = "UPDATE EBAY_LISTINGS SET MATCH_STATUS = 'SOLD' WHERE ITEM_ID = :ItemId";
+        await conn.ExecuteAsync(sql, new { ItemId = itemId });
+    }
+    public async Task<List<EbayListingRecord>> GetPendingAsync(int limit = 50)
     {
         using var conn = new OracleConnection(_connString);
         await conn.OpenAsync();

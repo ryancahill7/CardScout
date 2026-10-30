@@ -5,6 +5,7 @@ builder.Services.AddRazorPages();
 
 var oracleConnString = builder.Configuration.GetConnectionString("Oracle")!;
 builder.Services.AddSingleton(new DealsRepository(oracleConnString));
+builder.Services.AddSingleton(new RecentListingsRepository(oracleConnString));
 
 var app = builder.Build();
 

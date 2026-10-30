@@ -3,6 +3,7 @@ using CardScout.Core.Data;
 using CardScout.Core.Ebay;
 using CardScout.Core.Matching;
 using CardScout.Core.Models;
+using CardScout.Core.Pricing;
 
 namespace CardScout;
 
@@ -16,9 +17,6 @@ public class MatcherService : BackgroundService
     private readonly EbaySearchClient _ebay;
 
     private const double MinConfidence = 0.55;
-    private const decimal EbayFeeRate = 0.1325m;
-    private const decimal EbayPerOrderFee = 0.40m;
-    private const decimal PackagingMaterialsCost = 0.75m; 
     private const decimal MinNetProfitDollars = 2m;
     private const decimal MinNetProfitPct = 5m;
     private static decimal EstimateBuyShipping(decimal price)
@@ -51,7 +49,7 @@ public class MatcherService : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            var pending = await _listingsRepo.GetPendingAsync(10);
+            var pending = await _listingsRepo.GetPendingAsync(50);
 
             foreach (var listing in pending)
             {
@@ -138,16 +136,7 @@ public class MatcherService : BackgroundService
             }
         }
 
-        decimal? compPrice = parsed.Grade switch
-        {
-            { GradingCompany: "PSA", Grade: 10 } => compRecord.ManualOnlyPrice,
-            { GradingCompany: "BGS", Grade: 10 } => compRecord.Bgs10Price,
-            { Grade: >= 9.5m } => compRecord.BoxOnlyPrice,
-            { Grade: >= 9 } => compRecord.GradedPrice,
-            { Grade: >= 8 } => compRecord.NewPrice,
-            { Grade: >= 7 } => compRecord.CibPrice,
-            _ => compRecord.LoosePrice
-        };
+        var compPrice = CompPriceSelector.SelectPrice(compRecord, parsed.Grade);
 
         if (compPrice is null or 0)
         {
@@ -158,10 +147,11 @@ public class MatcherService : BackgroundService
 
         var discountPct = (compPrice.Value - listing.CurrentPrice) / compPrice.Value * 100m;
         discountPct = Math.Clamp(discountPct, -99999.99m, 99999.99m);
+
         var buyShipping = listing.ShippingCost ?? EstimateBuyShipping(listing.CurrentPrice);
         var acquisitionCost = listing.CurrentPrice + buyShipping;
 
-        var netProceeds = compPrice.Value * (1 - EbayFeeRate) - EbayPerOrderFee - PackagingMaterialsCost;
+        var netProceeds = SellerFees.NetProceeds(compPrice.Value);
 
         var netProfit = netProceeds - acquisitionCost;
         var netProfitPct = acquisitionCost == 0 ? 0 : netProfit / acquisitionCost * 100m;
@@ -169,7 +159,10 @@ public class MatcherService : BackgroundService
 
         var isProfitable = netProfit >= MinNetProfitDollars && netProfitPct >= MinNetProfitPct;
 
-        if (!listing.ShippingCost.HasValue)
+        // Only spend the extra eBay call refining shipping on listings that ALREADY look
+        // profitable on the estimate — this is the expensive, rate-limit-sensitive step,
+        // so it should stay reserved for genuinely promising matches, not every match.
+        if (isProfitable && !listing.ShippingCost.HasValue)
         {
             var realShipping = await _ebay.GetActualShippingCostAsync(listing.ItemId);
             if (realShipping.HasValue)

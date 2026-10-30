@@ -9,8 +9,12 @@
 </head>
 <body>
     <header class="app-header">
-        <div class="container-fluid px-4">
+        <div class="container-fluid px-4 d-flex align-items-center gap-4">
             <span class="app-header-title">🃏 CardScout</span>
+            <nav class="nav">
+                <a class="nav-link app-nav-link @(ViewContext.RouteData.Values["page"]?.ToString() == "/Deals" ? "active" : "")" href="/Deals">Deals</a>
+                <a class="nav-link app-nav-link @(ViewContext.RouteData.Values["page"]?.ToString() == "/RecentListings" ? "active" : "")" href="/RecentListings">Recent Listings</a>
+            </nav>
         </div>
     </header>
 

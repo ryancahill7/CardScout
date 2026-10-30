@@ -7,6 +7,8 @@ public class CompsClient
     private readonly HttpClient _http;
     private readonly string _token;
     private DateTime _lastCallTime = DateTime.MinValue;
+    // The API serves concurrent requests, so the ~1 call/sec limit needs a lock
+    private readonly SemaphoreSlim _throttleLock = new(1, 1);
 
     public CompsClient(HttpClient http, string token)
     {
@@ -20,10 +22,41 @@ public class CompsClient
     }
     private async Task ThrottleAsync()
     {
-        var elapsed = DateTime.UtcNow - _lastCallTime;
-        if (elapsed.TotalMilliseconds < 1100)
-            await Task.Delay(1100 - (int)elapsed.TotalMilliseconds);
-        _lastCallTime = DateTime.UtcNow;
+        await _throttleLock.WaitAsync();
+        try
+        {
+            var elapsed = DateTime.UtcNow - _lastCallTime;
+            if (elapsed.TotalMilliseconds < 1100)
+                await Task.Delay(1100 - (int)elapsed.TotalMilliseconds);
+            _lastCallTime = DateTime.UtcNow;
+        }
+        finally
+        {
+            _throttleLock.Release();
+        }
+    }
+
+    // An error status (expired token, rate limit, outage) used to look like "no match",
+    // which silently marked every listing NO_MATCH. Throw instead so callers can tell.
+    private static JsonDocument ParseOrThrow(HttpResponseMessage response, string body)
+    {
+        JsonDocument doc;
+        try
+        {
+            doc = JsonDocument.Parse(body);
+        }
+        catch (JsonException)
+        {
+            throw new CompsApiException($"SportsCardsPro returned HTTP {(int)response.StatusCode} with a non-JSON body.");
+        }
+
+        var status = doc.RootElement.TryGetProperty("status", out var s) ? s.GetString() : null;
+        if (status != "success")
+        {
+            var message = doc.RootElement.TryGetProperty("error-message", out var m) ? m.GetString() : null;
+            throw new CompsApiException($"SportsCardsPro error (HTTP {(int)response.StatusCode}): {message ?? status ?? "unknown"}");
+        }
+        return doc;
     }
 
     public async Task<List<CompCandidate>> SearchAsync(string query)
@@ -34,11 +67,10 @@ public class CompsClient
         var response = await _http.GetAsync(url);
         var body = await response.Content.ReadAsStringAsync();
 
-        var doc = JsonDocument.Parse(body);
-        var status = doc.RootElement.GetProperty("status").GetString();
+        var doc = ParseOrThrow(response, body);
 
         var results = new List<CompCandidate>();
-        if (status != "success" || !doc.RootElement.TryGetProperty("products", out var products))
+        if (!doc.RootElement.TryGetProperty("products", out var products))
             return results;
 
         foreach (var p in products.EnumerateArray())
@@ -61,8 +93,7 @@ public class CompsClient
         var response = await _http.GetAsync(url);
         var body = await response.Content.ReadAsStringAsync();
 
-        var doc = JsonDocument.Parse(body);
-        if (doc.RootElement.GetProperty("status").GetString() != "success") return null;
+        var doc = ParseOrThrow(response, body);
 
         // prices come back as pennies (int) per sportscardspro docs — divide by 100
         decimal? ReadPrice(string key) =>
@@ -85,3 +116,5 @@ public class CompsClient
         };
     }
 }
+
+public class CompsApiException(string message) : Exception(message);

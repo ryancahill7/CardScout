@@ -1,0 +1,16 @@
+﻿@model List<CardScout.Core.Models.RecentListing>
+
+@foreach (var l in Model)
+{
+    var typeBadgeClass = l.ListingType == "AUCTION" ? "bg-warning text-dark" : "bg-success";
+
+    <tr data-player="@l.PlayerName">
+        <td><span class="badge @typeBadgeClass">@l.ListingType</span></td>
+        <td>@l.PlayerName</td>
+        <td>@l.Title</td>
+        <td>$@l.Price.ToString("0.00")</td>
+        <td>@l.Condition</td>
+        <td>@l.FirstSeen.ToString("MM/dd h:mm tt")</td>
+        <td><a href="@l.ListingUrl" target="_blank">View →</a></td>
+    </tr>
+}

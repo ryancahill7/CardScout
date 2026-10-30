@@ -132,3 +132,21 @@ th.col-comp {
     opacity: 0.6;
     border-left: 3px solid #d65c5c;
 }
+.app-nav-link {
+    color: #a8b3c4 !important;
+    padding: 6px 14px;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 0.9rem;
+}
+
+    .app-nav-link:hover {
+        background-color: rgba(82, 183, 136, 0.15);
+        color: #e6e6e6 !important;
+    }
+
+    .app-nav-link.active {
+        background-color: #2d6a4f;
+        color: #ffffff !important;
+    }
