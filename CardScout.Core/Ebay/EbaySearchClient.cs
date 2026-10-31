@@ -13,6 +13,13 @@ public class EbaySearchClient
     private readonly HttpClient _http;
     private readonly EbayAuthClient _auth;
     private const string BaseballCardsCategoryId = "212";
+    // eBay "Sports Trading Cards" (212) and "Collectible Card Games" (2536, which holds the
+    // Pokemon / Magic / Yu-Gi-Oh! / One Piece / Lorcana single-card categories)
+    public const string SportsCardsCategoryId = "212";
+    public const string TcgCategoryId = "2536";
+
+    public static string CategoryFor(string? category) =>
+        Matching.TcgMatcher.IsTcg(category) ? TcgCategoryId : SportsCardsCategoryId;
 
     public EbaySearchClient(HttpClient http, EbayAuthClient auth)
     {
@@ -203,11 +210,13 @@ public class EbaySearchClient
 
         return results;
     }
-    // General keyword search across all trading cards (not just baseball), used by
-    // watchlists and the show-mode market check. buyingOption is AUCTION, FIXED_PRICE or
-    // null for both; sort is an eBay sort value like "newlyListed" or "endingSoonest".
+    // General keyword search across all sports cards (not just baseball), or trading card
+    // games when categoryId is TcgCategoryId; used by watchlists and the market check.
+    // buyingOption is AUCTION, FIXED_PRICE or null for both; sort is an eBay sort value like
+    // "newlyListed" or "endingSoonest".
     public async Task<List<EbayListing>> SearchListingsAsync(
-        string query, string? buyingOption, string sort, int limit = 25, DateTime? endBefore = null, decimal? maxPrice = null)
+        string query, string? buyingOption, string sort, int limit = 25, DateTime? endBefore = null, decimal? maxPrice = null,
+        string categoryId = SportsCardsCategoryId)
     {
         var token = await _auth.GetTokenAsync();
 
@@ -218,7 +227,7 @@ public class EbaySearchClient
 
         var url = "https://api.ebay.com/buy/browse/v1/item_summary/search" +
                   $"?q={Uri.EscapeDataString(query)}" +
-                  $"&category_ids={BaseballCardsCategoryId}" +
+                  $"&category_ids={categoryId}" +
                   (filters.Count > 0 ? $"&filter={Uri.EscapeDataString(string.Join(",", filters))}" : "") +
                   $"&sort={sort}" +
                   $"&limit={Math.Clamp(limit, 1, 200)}";

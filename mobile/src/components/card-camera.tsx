@@ -20,16 +20,22 @@ export interface CapturedPhoto {
 export type CameraMode = 'card' | 'quick' | 'lot';
 
 // Full-screen guided capture for one side of a card, with a photo-library fallback.
+// hint is a status line under the instructions (e.g. "Checking card type…"); onSkip adds a
+// Skip button (the back photo is optional).
 export function CardCamera({
   side,
   onCaptured,
   onCancel,
   mode = 'card',
+  hint,
+  onSkip,
 }: {
   side: 'front' | 'back';
   onCaptured: (photo: CapturedPhoto) => void;
   onCancel?: () => void;
   mode?: CameraMode;
+  hint?: string | null;
+  onSkip?: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
@@ -84,7 +90,8 @@ export function CardCamera({
         </View>
         <Text style={styles.permissionTitle}>Point, shoot, price</Text>
         <Text style={styles.permissionBody}>
-          CardScout photographs the front and back of a card, identifies it, and pulls live market comps.
+          CardScout photographs a card, identifies it (sports cards, Pokémon, Magic, Yu-Gi-Oh! and more), and pulls live
+          market comps.
         </Text>
         <View style={{ alignSelf: 'stretch', gap: space.md, marginTop: space.lg }}>
           {permission.canAskAgain ? (
@@ -146,6 +153,11 @@ export function CardCamera({
         <Text style={styles.subInstructions}>
           {mode === 'lot' ? 'Fronts up · no overlap · avoid glare' : 'Fill the frame · avoid glare · keep it flat'}
         </Text>
+        {hint ? (
+          <View style={styles.hint}>
+            <Text style={styles.hintText}>{hint}</Text>
+          </View>
+        ) : null}
       </View>
 
       <View style={[styles.controls, { paddingBottom: Math.max(insets.bottom, space.lg) + space.sm }]}>
@@ -170,7 +182,18 @@ export function CardCamera({
             ]}>
             <View style={styles.shutterInner} />
           </Pressable>
-          <View style={styles.glassButtonLarge} />
+          {onSkip ? (
+            <Pressable
+              onPress={onSkip}
+              style={styles.glassButtonLarge}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={`Skip the ${side} photo`}>
+              <Text style={styles.skipText}>Skip</Text>
+            </Pressable>
+          ) : (
+            <View style={styles.glassButtonLarge} />
+          )}
         </View>
       </View>
     </View>
@@ -241,6 +264,15 @@ const styles = StyleSheet.create({
     textShadowColor: '#000',
     textShadowRadius: 8,
   },
+  hint: {
+    marginTop: space.xs,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    backgroundColor: colors.overlay,
+  },
+  hintText: { color: '#FFFFFF', fontFamily: fonts.bodySemiBold, fontSize: 13 },
+  skipText: { color: '#FFFFFF', fontFamily: fonts.bodySemiBold, fontSize: 14 },
   controls: { paddingHorizontal: space.xl, paddingTop: space.lg, gap: space.md, backgroundColor: '#00000080' },
   controlRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   shutter: {

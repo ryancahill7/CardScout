@@ -5,7 +5,17 @@ import { useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { Button, ErrorBanner, Field, Loading, SectionTitle, Surface } from '@/components/ui';
-import { createWatchlist, deleteWatchlist, getWatchlists, updateWatchlist, WatchlistInput, WatchlistListingType } from '@/lib/api';
+import {
+  CardCategory,
+  createWatchlist,
+  deleteWatchlist,
+  getWatchlists,
+  TCG_GAMES,
+  TcgGame,
+  updateWatchlist,
+  WatchlistInput,
+  WatchlistListingType,
+} from '@/lib/api';
 import { colors, fonts, radius, space } from '@/lib/theme';
 
 const TYPES: { key: WatchlistListingType; label: string }[] = [
@@ -14,9 +24,16 @@ const TYPES: { key: WatchlistListingType; label: string }[] = [
   { key: 'AUCTION', label: 'Auctions' },
 ];
 
+// Sports searches eBay's sports card category; each TCG searches the collectible card games one
+const KINDS: { key: 'sports' | TcgGame; label: string }[] = [
+  { key: 'sports', label: 'Sports' },
+  ...TCG_GAMES.map((g) => ({ key: g.key, label: g.short })),
+];
+
 interface FormValues {
   name: string;
   query: string;
+  kind: 'sports' | TcgGame;
   listingType: WatchlistListingType;
   maxPrice: string;
   minProfit: string;
@@ -29,6 +46,7 @@ interface FormValues {
 const EMPTY: FormValues = {
   name: '',
   query: '',
+  kind: 'sports',
   listingType: 'ANY',
   maxPrice: '',
   minProfit: '5',
@@ -54,6 +72,7 @@ export default function WatchlistEditScreen() {
     setForm({
       name: existing.name,
       query: existing.query,
+      kind: existing.category === 'tcg' ? (existing.game ?? 'other') : 'sports',
       listingType: existing.listingType,
       maxPrice: existing.maxPrice == null ? '' : String(existing.maxPrice),
       minProfit: String(existing.minProfit),
@@ -96,9 +115,12 @@ export default function WatchlistEditScreen() {
     if ([maxPrice, minProfit, minProfitPct].some((n) => n != null && !Number.isFinite(n)))
       return setError('Prices and percentages must be numbers.');
     setError(null);
+    const category: CardCategory = form.kind === 'sports' ? 'sports' : 'tcg';
     save.mutate({
       name: form.name.trim() || form.query.trim(),
       query: form.query.trim(),
+      category,
+      game: form.kind === 'sports' ? null : form.kind,
       listingType: form.listingType,
       maxPrice,
       minProfit,
@@ -115,11 +137,30 @@ export default function WatchlistEditScreen() {
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
         <Surface>
           <SectionTitle>Search eBay for</SectionTitle>
+          <Text style={styles.label}>Card type</Text>
+          <View style={[styles.segmented, { flexWrap: 'wrap' }]}>
+            {KINDS.map((k) => (
+              <Pressable
+                key={k.key}
+                onPress={() => set('kind')(k.key)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: form.kind === k.key }}
+                style={[styles.segment, { minWidth: '30%' }, form.kind === k.key && styles.segmentSelected]}>
+                <Text style={[styles.segmentText, form.kind === k.key && { color: colors.text }]}>{k.label}</Text>
+              </Pressable>
+            ))}
+          </View>
           <Field
             label="Keywords"
             value={form.query}
             onChangeText={set('query')}
-            placeholder="e.g. Paul Skenes Bowman Chrome PSA 10"
+            placeholder={
+              form.kind === 'sports'
+                ? 'e.g. Paul Skenes Bowman Chrome PSA 10'
+                : form.kind === 'pokemon'
+                  ? 'e.g. Umbreon VMAX 215/203 PSA 10'
+                  : 'e.g. card name + set or number'
+            }
             autoCapitalize="words"
             autoCorrect={false}
           />

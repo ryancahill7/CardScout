@@ -16,7 +16,7 @@ export function MarketPanel({ request, enabled = true }: { request: PriceQuoteRe
   const settled = useDebounced(request, 900);
   const key =
     settled &&
-    [settled.player, settled.year, settled.manufacturer, settled.set, settled.cardNumber, settled.parallel, settled.isAutograph, settled.gradingCompany, settled.grade];
+    [settled.category, settled.game, settled.player, settled.year, settled.manufacturer, settled.set, settled.cardNumber, settled.parallel, settled.language, settled.isAutograph, settled.gradingCompany, settled.grade];
   const market = useQuery({
     queryKey: ['market', key],
     queryFn: () => getMarket(settled!),

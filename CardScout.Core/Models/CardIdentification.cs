@@ -19,7 +19,23 @@ public record CardIdentification(
     // AI's read of how a raw card would grade; null for slabbed cards and old scans
     GradeOutlook? GradeOutlook = null,
     // Grading company certification number from the slab label (not the /99 serial numbering)
-    string? CertNumber = null);
+    string? CertNumber = null,
+    // "sports" or "tcg" (null = sports, for older scans). For TCG cards, Player holds the card
+    // name ("Charizard"), Set the set/expansion, CardNumber the collector number as printed
+    // ("4/102", "LOB-EN001"), Parallel the variant/finish ("1st Edition", "Reverse Holo") and
+    // Manufacturer the publisher.
+    string? Category = null,
+    // pokemon, mtg, yugioh, one-piece, lorcana or other (TCG only)
+    string? Game = null,
+    // Printed set code, e.g. "LOB", "OP01", "MH3", "SV3PT5"
+    string? SetCode = null,
+    // As printed or shown by the rarity symbol, e.g. "Rare Holo", "Special Illustration Rare", "Mythic"
+    string? Rarity = null,
+    // Card language; null or "English" for English cards
+    string? Language = null)
+{
+    public bool IsTcg => string.Equals(Category, "tcg", StringComparison.OrdinalIgnoreCase);
+}
 
 // Probabilities (0-1, summing to ~1) that a raw card grades PSA 10 / 9 / 8 / 7 or lower,
 // judged from centering, corners, edges and surface in the photos
@@ -38,11 +54,16 @@ public record LotCardIdentification(
     string? GradingCompany,
     decimal? Grade,
     decimal Confidence,
-    string? Position)
+    string? Position,
+    // Same meaning as on CardIdentification; null for sports cards and older responses
+    string? Category = null,
+    string? Game = null,
+    string? Language = null)
 {
     public CardIdentification ToIdentification() => new(
         Player, Year, Manufacturer, Set, CardNumber, Parallel, null,
-        IsRookie, IsAutograph, false, GradingCompany, Grade, null, Confidence, "");
+        IsRookie, IsAutograph, false, GradingCompany, Grade, null, Confidence, "",
+        Category: Category, Game: Game, Language: Language);
 }
 
 public record PriceTier(string Key, string Label, decimal? Price);
@@ -78,5 +99,6 @@ public static class CardIdentificationExtensions
     public static CardIdentification ToIdentification(this CardInventoryItem c) => new(
         c.Player, c.CardYear, c.Manufacturer, c.SetName, c.CardNumber, c.Parallel, c.SerialNumber,
         c.IsRookie == "Y", c.IsAutograph == "Y", c.IsRelic == "Y", c.GradingCompany, c.Grade,
-        c.ConditionNotes, c.AiConfidence ?? 0, c.EbayTitle, null, c.CertNumber);
+        c.ConditionNotes, c.AiConfidence ?? 0, c.EbayTitle, null, c.CertNumber,
+        c.Category, c.Game, c.SetCode, c.Rarity, c.CardLanguage);
 }

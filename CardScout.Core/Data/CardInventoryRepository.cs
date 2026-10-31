@@ -20,6 +20,7 @@ public class CardInventoryRepository
         FRONT_IMAGE_PATH AS FrontImagePath, BACK_IMAGE_PATH AS BackImagePath,
         PURCHASE_SOURCE AS PurchaseSource, PURCHASED_AT AS PurchasedAt, GRADING_COST AS GradingCost,
         SALE_SHIPPING_COST AS SaleShippingCost, MARKET_PRICE AS MarketPrice, MARKET_PRICE_AT AS MarketPriceAt,
+        CATEGORY AS Category, GAME AS Game, SET_CODE AS SetCode, RARITY AS Rarity, CARD_LANGUAGE AS CardLanguage,
         CREATED_AT AS CreatedAt, UPDATED_AT AS UpdatedAt";
 
     public CardInventoryRepository(string connectionString)
@@ -39,14 +40,14 @@ public class CardInventoryRepository
                  AI_CONFIDENCE, EBAY_TITLE, SUGGESTED_PRICE, COMP_PRODUCT_ID, COST_BASIS, STATUS,
                  LISTED_PRICE, SOLD_PRICE, SOLD_AT, FRONT_IMAGE_PATH, BACK_IMAGE_PATH, AI_RAW_JSON,
                  PURCHASE_SOURCE, PURCHASED_AT, GRADING_COST, SALE_SHIPPING_COST, MARKET_PRICE, MARKET_PRICE_AT,
-                 CERT_NUMBER, CREATED_AT, UPDATED_AT)
+                 CERT_NUMBER, CATEGORY, GAME, SET_CODE, RARITY, CARD_LANGUAGE, CREATED_AT, UPDATED_AT)
             VALUES
                 (:UserId, :Player, :CardYear, :Manufacturer, :SetName, :CardNumber, :Parallel, :SerialNumber,
                  :IsRookie, :IsAutograph, :IsRelic, :GradingCompany, :Grade, :ConditionNotes,
                  :AiConfidence, :EbayTitle, :SuggestedPrice, :CompProductId, :CostBasis, :Status,
                  :ListedPrice, :SoldPrice, :SoldAt, :FrontImagePath, :BackImagePath, :AiRawJson,
                  :PurchaseSource, :PurchasedAt, :GradingCost, :SaleShippingCost, :MarketPrice, :MarketPriceAt,
-                 :CertNumber, SYSTIMESTAMP, SYSTIMESTAMP)
+                 :CertNumber, :Category, :Game, :SetCode, :Rarity, :CardLanguage, SYSTIMESTAMP, SYSTIMESTAMP)
             RETURNING ID INTO :NewId";
 
         var parameters = new DynamicParameters(item);
@@ -91,7 +92,8 @@ public class CardInventoryRepository
                 EBAY_TITLE = :EbayTitle, SUGGESTED_PRICE = :SuggestedPrice, COMP_PRODUCT_ID = :CompProductId, COST_BASIS = :CostBasis,
                 STATUS = :Status, LISTED_PRICE = :ListedPrice, SOLD_PRICE = :SoldPrice, SOLD_AT = :SoldAt,
                 PURCHASE_SOURCE = :PurchaseSource, PURCHASED_AT = :PurchasedAt, GRADING_COST = :GradingCost,
-                SALE_SHIPPING_COST = :SaleShippingCost,
+                SALE_SHIPPING_COST = :SaleShippingCost, CATEGORY = :Category, GAME = :Game, SET_CODE = :SetCode,
+                RARITY = :Rarity, CARD_LANGUAGE = :CardLanguage,
                 UPDATED_AT = SYSTIMESTAMP
             WHERE ID = :Id AND USER_ID = :UserId";
         await conn.ExecuteAsync(sql, new
@@ -100,7 +102,8 @@ public class CardInventoryRepository
             item.SerialNumber, item.IsRookie, item.IsAutograph, item.IsRelic, item.GradingCompany, item.Grade, item.CertNumber,
             item.ConditionNotes, item.EbayTitle, item.SuggestedPrice, item.CompProductId, item.CostBasis, item.Status,
             item.ListedPrice, item.SoldPrice, item.SoldAt, item.PurchaseSource, item.PurchasedAt, item.GradingCost,
-            item.SaleShippingCost, item.Id, item.UserId
+            item.SaleShippingCost, item.Category, item.Game, item.SetCode, item.Rarity, item.CardLanguage,
+            item.Id, item.UserId
         });
     }
 

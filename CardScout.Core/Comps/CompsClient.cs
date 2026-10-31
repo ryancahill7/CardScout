@@ -15,10 +15,21 @@ public class CompsClient
         _http = http;
         _token = token;
     }
+    // SportsCardsPro's search only covers sports cards. Pokemon, Magic, Yu-Gi-Oh!, One Piece,
+    // Lorcana and other TCGs live on PriceCharting (same company, same API, same token, same
+    // price fields). Product ids are shared, so /api/product works on either host.
+    private const string SportsHost = "https://www.sportscardspro.com";
+    private const string TcgHost = "https://www.pricecharting.com";
+
+    // Sports consoles read "<Sport> Cards <year> <set>"; anything else (Pokemon Base Set, Magic Alpha...) is a TCG
+    public static bool IsSportsConsole(string? consoleName) =>
+        consoleName != null && System.Text.RegularExpressions.Regex.IsMatch(consoleName, @"^[A-Za-z]+ Cards\b");
+
     public static string BuildSearchUrl(string productName, string consoleName)
     {
         var query = Uri.EscapeDataString($"{productName}");
-        return $"https://www.sportscardspro.com/search-products?q={query}&type=prices";
+        var host = IsSportsConsole(consoleName) || string.IsNullOrWhiteSpace(consoleName) ? SportsHost : TcgHost;
+        return $"{host}/search-products?q={query}&type=prices";
     }
     private async Task ThrottleAsync()
     {
@@ -59,11 +70,13 @@ public class CompsClient
         return doc;
     }
 
-    public async Task<List<CompCandidate>> SearchAsync(string query)
+    // tradingCardGames searches PriceCharting (Pokemon, Magic, Yu-Gi-Oh!...) instead of SportsCardsPro
+    public async Task<List<CompCandidate>> SearchAsync(string query, bool tradingCardGames = false)
     {
         await ThrottleAsync();
 
-        var url = $"https://www.sportscardspro.com/api/products?t={_token}&q={Uri.EscapeDataString(query)}";
+        var host = tradingCardGames ? TcgHost : SportsHost;
+        var url = $"{host}/api/products?t={_token}&q={Uri.EscapeDataString(query)}";
         var response = await _http.GetAsync(url);
         var body = await response.Content.ReadAsStringAsync();
 
@@ -89,7 +102,7 @@ public class CompsClient
     {
         await ThrottleAsync();
 
-        var url = $"https://www.sportscardspro.com/api/product?t={_token}&id={Uri.EscapeDataString(productId)}";
+        var url = $"{SportsHost}/api/product?t={_token}&id={Uri.EscapeDataString(productId)}";
         var response = await _http.GetAsync(url);
         var body = await response.Content.ReadAsStringAsync();
 

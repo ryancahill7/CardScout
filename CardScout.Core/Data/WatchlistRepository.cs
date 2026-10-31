@@ -14,7 +14,7 @@ public class WatchlistRepository
         ID AS Id, USER_ID AS UserId, NAME AS Name, QUERY AS Query, LISTING_TYPE AS ListingType,
         MAX_PRICE AS MaxPrice, MIN_PROFIT AS MinProfit, MIN_PROFIT_PCT AS MinProfitPct,
         GRADED_ONLY AS GradedOnly, NOTIFY AS Notify, IS_ACTIVE AS IsActive, LAST_RUN_AT AS LastRunAt,
-        CREATED_AT AS CreatedAt";
+        CATEGORY AS Category, GAME AS Game, CREATED_AT AS CreatedAt";
 
     private const string HitColumns = @"
         h.ID AS Id, h.WATCHLIST_ID AS WatchlistId, h.USER_ID AS UserId, w.NAME AS WatchlistName,
@@ -56,13 +56,16 @@ public class WatchlistRepository
         await conn.OpenAsync();
         const string sql = @"
             INSERT INTO CARD_WATCHLISTS
-                (USER_ID, NAME, QUERY, LISTING_TYPE, MAX_PRICE, MIN_PROFIT, MIN_PROFIT_PCT, GRADED_ONLY, NOTIFY, IS_ACTIVE, CREATED_AT)
+                (USER_ID, NAME, QUERY, LISTING_TYPE, MAX_PRICE, MIN_PROFIT, MIN_PROFIT_PCT, GRADED_ONLY, NOTIFY, IS_ACTIVE,
+                 CATEGORY, GAME, CREATED_AT)
             VALUES
-                (:UserId, :Name, :Query, :ListingType, :MaxPrice, :MinProfit, :MinProfitPct, :GradedOnly, :Notify, :IsActive, SYSTIMESTAMP)
+                (:UserId, :Name, :Query, :ListingType, :MaxPrice, :MinProfit, :MinProfitPct, :GradedOnly, :Notify, :IsActive,
+                 :Category, :Game, SYSTIMESTAMP)
             RETURNING ID INTO :NewId";
         var parameters = new DynamicParameters(new
         {
-            w.UserId, w.Name, w.Query, w.ListingType, w.MaxPrice, w.MinProfit, w.MinProfitPct, w.GradedOnly, w.Notify, w.IsActive
+            w.UserId, w.Name, w.Query, w.ListingType, w.MaxPrice, w.MinProfit, w.MinProfitPct, w.GradedOnly, w.Notify, w.IsActive,
+            w.Category, w.Game
         });
         parameters.Add("NewId", dbType: DbType.Int64, direction: ParameterDirection.Output);
         await conn.ExecuteAsync(sql, parameters);
@@ -77,12 +80,12 @@ public class WatchlistRepository
             UPDATE CARD_WATCHLISTS SET
                 NAME = :Name, QUERY = :Query, LISTING_TYPE = :ListingType, MAX_PRICE = :MaxPrice,
                 MIN_PROFIT = :MinProfit, MIN_PROFIT_PCT = :MinProfitPct, GRADED_ONLY = :GradedOnly,
-                NOTIFY = :Notify, IS_ACTIVE = :IsActive
+                NOTIFY = :Notify, IS_ACTIVE = :IsActive, CATEGORY = :Category, GAME = :Game
             WHERE ID = :Id AND USER_ID = :UserId";
         await conn.ExecuteAsync(sql, new
         {
             w.Name, w.Query, w.ListingType, w.MaxPrice, w.MinProfit, w.MinProfitPct, w.GradedOnly, w.Notify, w.IsActive,
-            w.Id, w.UserId
+            w.Category, w.Game, w.Id, w.UserId
         });
     }
 

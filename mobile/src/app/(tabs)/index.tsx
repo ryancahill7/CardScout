@@ -24,7 +24,8 @@ import { SoldCompsPanel } from '@/components/sold-comps-panel';
 import { Button, ErrorBanner, HoloFrame, Loading, ScreenTitle, SectionTitle, Surface } from '@/components/ui';
 import { UsageBanner } from '@/components/usage';
 import { VerdictPanel } from '@/components/verdict-panel';
-import { Card, createCard, identifyCard, IdentifyResponse, PriceQuote, quoteRequestFrom } from '@/lib/api';
+import { Card, createCard, gameLabel, identifyCard, IdentifyResponse, isTcg, PriceQuote, quoteRequestFrom } from '@/lib/api';
+import { cardMetaParts, unknownName } from '@/lib/card-meta';
 import { isConfigured } from '@/lib/config';
 import { prepareForUpload } from '@/lib/images';
 import { formatMoney } from '@/lib/money';
@@ -34,7 +35,7 @@ import { useCardPricing } from '@/lib/use-pricing';
 
 type Side = 'front' | 'back';
 
-const IDENTIFY_STEPS = ['Reading the card…', 'Identifying player & set…', 'Pulling market comps…'];
+const IDENTIFY_STEPS = ['Reading the card…', 'Identifying the card & set…', 'Pulling market comps…'];
 
 export default function ScanScreen() {
   const queryClient = useQueryClient();
@@ -55,26 +56,58 @@ export default function ScanScreen() {
     setForm((f) => f && { ...f, suggestedPrice: quote.suggestedPrice == null ? f.suggestedPrice : quote.suggestedPrice.toFixed(2) }),
   );
 
+  function applyResult(result: IdentifyResponse) {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    const values = toFormValues({
+      ...result.card,
+      ebayTitle: result.card.suggestedEbayTitle,
+      suggestedPrice: result.price.suggestedPrice,
+      costBasis: null,
+    });
+    setIdentified(result);
+    setForm(values);
+    pricing.seed(result.price, values, result.priceError);
+  }
+
   // Bumped by Start over, so a slow identify that finishes afterwards is ignored
   const attempt = useRef(0);
+  // The front photo the latest front-only read is for, so a retaken front ignores the old read
+  const frontReadFor = useRef<string | null>(null);
+  // Set when the user skips the back before the front-only read has come back
+  const useFrontOnly = useRef(false);
+
+  // Front-only read, started as soon as the front is captured (while the user lines up the
+  // back). It says whether the card is a TCG card: TCG backs are identical within a game, so
+  // those go straight to review. It's also the result when a sports card's back is skipped.
+  const frontRead = useMutation({
+    mutationFn: async (frontUri: string) => {
+      const mine = attempt.current;
+      const result = await identifyCard(frontUri);
+      return { result, frontUri, stale: mine !== attempt.current || frontReadFor.current !== frontUri };
+    },
+    onSuccess: ({ result, stale }) => {
+      if (stale) return;
+      if (isTcg(result.card) || useFrontOnly.current) {
+        attempt.current++; // a front+back identify already in flight isn't needed any more
+        setCapturing(null);
+        applyResult(result);
+      }
+    },
+  });
+
+  const frontReadResult = frontRead.data && !frontRead.data.stale && frontRead.data.frontUri === photos.front ? frontRead.data.result : null;
+
   const identify = useMutation({
     mutationFn: async () => {
       const mine = ++attempt.current;
-      const result = await identifyCard(photos.front!, photos.back!);
+      // Front only and the background read already has it: no second call
+      if (!photos.back && frontReadResult) return { result: frontReadResult, stale: false };
+      const result = await identifyCard(photos.front!, photos.back);
       return { result, stale: mine !== attempt.current };
     },
     onSuccess: ({ result, stale }) => {
       if (stale) return;
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      const values = toFormValues({
-        ...result.card,
-        ebayTitle: result.card.suggestedEbayTitle,
-        suggestedPrice: result.price.suggestedPrice,
-        costBasis: null,
-      });
-      setIdentified(result);
-      setForm(values);
-      pricing.seed(result.price, values, result.priceError);
+      applyResult(result);
     },
     onError: () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error),
   });
@@ -90,6 +123,9 @@ export default function ScanScreen() {
 
   function reset() {
     attempt.current++;
+    frontReadFor.current = null;
+    useFrontOnly.current = false;
+    frontRead.reset();
     setPhotos({ front: null, back: null });
     setCapturing('front');
     setIdentified(null);
@@ -110,7 +146,13 @@ export default function ScanScreen() {
       const uri = await prepareForUpload(photo.uri, photo.width, photo.height);
       const next = { ...photos, [side]: uri };
       setPhotos(next);
-      // Guided flow: front, then back, then review. Retakes go straight back to review.
+      if (side === 'front') {
+        // Start reading the front now; a TCG card skips the back step when it comes back
+        frontReadFor.current = uri;
+        useFrontOnly.current = false;
+        frontRead.mutate(uri);
+      }
+      // Guided flow: front, then back (sports only, optional), then review. Retakes go straight back to review.
       setCapturing(side === 'front' && !next.back ? 'back' : null);
       identify.reset();
     } catch (e) {
@@ -152,12 +194,30 @@ export default function ScanScreen() {
   if (preparing) return <Loading label="Processing photo…" />;
 
   if (capturing) {
+    const backHint =
+      capturing !== 'back' || !photos.front
+        ? null
+        : frontRead.isPending
+          ? 'Checking the card…'
+          : frontReadResult && !isTcg(frontReadResult.card)
+            ? 'Sports card · the back adds the year and card #'
+            : null;
     return (
       <CardCamera
         key={capturing}
         side={capturing}
+        hint={backHint}
         onCaptured={(photo) => handleCaptured(capturing, photo)}
         onCancel={photos.front || photos.back ? () => setCapturing(null) : undefined}
+        onSkip={
+          capturing === 'back' && photos.front
+            ? () => {
+                setCapturing(null);
+                if (frontReadResult) applyResult(frontReadResult);
+                else if (frontRead.isPending) useFrontOnly.current = true;
+              }
+            : undefined
+        }
       />
     );
   }
@@ -187,6 +247,10 @@ export default function ScanScreen() {
   }
 
   const busy = identify.isPending || save.isPending;
+  // Waiting on the front-only read after skipping the back
+  const readingFront = !identified && useFrontOnly.current && frontRead.isPending;
+  // TCG cards don't need the back, so the slot is only shown when there is one
+  const sides = identified && isTcg(identified.card) && !photos.back ? (['front'] as const) : (['front', 'back'] as const);
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -194,7 +258,13 @@ export default function ScanScreen() {
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
           <ScreenTitle
             title={identified ? 'Review' : 'Scan'}
-            subtitle={identified ? 'Check the details, then add it to your collection' : 'Both sides captured. Ready when you are.'}
+            subtitle={
+              identified
+                ? 'Check the details, then add it to your collection'
+                : photos.back
+                  ? 'Both sides captured. Ready when you are.'
+                  : 'Front captured. Add the back for sports cards, or go ahead.'
+            }
             right={
               <Pressable onPress={reset} disabled={save.isPending} hitSlop={10} accessibilityRole="button" accessibilityLabel="Start over">
                 <Text style={[styles.link, save.isPending && { opacity: 0.4 }]}>{identify.isPending ? 'Cancel' : 'Start over'}</Text>
@@ -204,12 +274,12 @@ export default function ScanScreen() {
           <UsageBanner />
 
           <View style={styles.photoRow}>
-            {(['front', 'back'] as const).map((side) => (
+            {sides.map((side) => (
               <PhotoSlot
                 key={side}
                 side={side}
                 uri={photos[side]}
-                scanning={identify.isPending}
+                scanning={identify.isPending || readingFront}
                 disabled={busy}
                 onPress={() => setCapturing(side)}
               />
@@ -222,13 +292,13 @@ export default function ScanScreen() {
             <View style={{ gap: space.md }}>
               {identify.isError && <ErrorBanner message={identify.error.message} onRetry={() => identify.mutate()} />}
               <Button
-                title={identify.isPending ? 'Identifying…' : 'Identify & price'}
+                title={identify.isPending || readingFront ? 'Identifying…' : 'Identify & price'}
                 icon="sparkles"
-                loading={identify.isPending}
-                disabled={!photos.front || !photos.back}
+                loading={identify.isPending || readingFront}
+                disabled={!photos.front}
                 onPress={() => identify.mutate()}
               />
-              {identify.isPending && <IdentifyProgress />}
+              {(identify.isPending || readingFront) && <IdentifyProgress />}
             </View>
           )}
 
@@ -353,14 +423,27 @@ function IdentifyProgress() {
 function IdentityHeader({ result, form }: { result: IdentifyResponse; form: CardFormValues }) {
   const pct = Math.round(result.card.confidence * 100);
   const color = pct >= 80 ? colors.primary : pct >= 50 ? colors.warning : colors.danger;
-  const subtitle = [form.year, form.manufacturer, form.set, form.cardNumber && `#${form.cardNumber}`].filter(Boolean).join(' · ');
-  const tags = [
-    form.parallel && form.parallel,
-    form.isRookie && 'RC',
-    form.isAutograph && 'Auto',
-    form.isRelic && 'Relic',
-    form.gradingCompany && form.grade && `${form.gradingCompany} ${form.grade}`,
-  ].filter(Boolean) as string[];
+  const tcg = form.category === 'tcg';
+  const subtitle = tcg
+    ? cardMetaParts({ ...form, game: null, parallel: null, rarity: null }).join(' · ')
+    : [form.year, form.manufacturer, form.set, form.cardNumber && `#${form.cardNumber}`].filter(Boolean).join(' · ');
+  const tags = (
+    tcg
+      ? [
+          gameLabel(form.game || 'other'),
+          form.parallel,
+          form.rarity,
+          form.isAutograph && 'Signed',
+          form.gradingCompany && form.grade && `${form.gradingCompany} ${form.grade}`,
+        ]
+      : [
+          form.parallel && form.parallel,
+          form.isRookie && 'RC',
+          form.isAutograph && 'Auto',
+          form.isRelic && 'Relic',
+          form.gradingCompany && form.grade && `${form.gradingCompany} ${form.grade}`,
+        ]
+  ).filter(Boolean) as string[];
 
   return (
     <View style={{ gap: space.sm }}>
@@ -369,7 +452,7 @@ function IdentityHeader({ result, form }: { result: IdentifyResponse; form: Card
         <Text style={[styles.aiText, { color }]}>AI read · {pct}% sure</Text>
         {pct < 80 && <Text style={styles.aiHint}>double-check below</Text>}
       </View>
-      <Text style={styles.player}>{form.player || 'Unknown player'}</Text>
+      <Text style={styles.player}>{form.player || unknownName(form)}</Text>
       {subtitle.length > 0 && <Text style={styles.subtitle}>{subtitle}</Text>}
       {tags.length > 0 && (
         <View style={styles.tags}>

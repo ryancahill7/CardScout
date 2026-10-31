@@ -37,6 +37,14 @@ public class CardInventoryItem
     // Latest comp from PortfolioPriceWorker; SuggestedPrice is the user's own asking price
     public decimal? MarketPrice { get; set; }
     public DateTime? MarketPriceAt { get; set; }
+    // "sports" or "tcg" (null on rows saved before TCG support = sports). For TCG cards Player
+    // is the card name, Parallel the variant/finish and Manufacturer the publisher.
+    public string? Category { get; set; }
+    // pokemon, mtg, yugioh, one-piece, lorcana, other
+    public string? Game { get; set; }
+    public string? SetCode { get; set; }
+    public string? Rarity { get; set; }
+    public string? CardLanguage { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

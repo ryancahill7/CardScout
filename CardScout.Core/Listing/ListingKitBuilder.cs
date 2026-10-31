@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using CardScout.Core.Matching;
 using CardScout.Core.Models;
 using CardScout.Core.Pricing;
 
@@ -38,6 +39,8 @@ public static class ListingKitBuilder
 
     public static ListingKit Build(CardInventoryItem card, decimal? marketPrice)
     {
+        if (TcgMatcher.IsTcg(card.Category)) return BuildTcg(card, marketPrice);
+
         var graded = card.GradingCompany != null && card.Grade != null;
         var specifics = new List<ItemSpecific>();
         void Add(string name, string? value)
@@ -84,6 +87,81 @@ public static class ListingKitBuilder
             "https://www.ebay.com/sl/sell");
     }
 
+    // eBay's CCG item specifics: Game, Card Name, Set, Card Number, Rarity, Finish, Language...
+    private static ListingKit BuildTcg(CardInventoryItem card, decimal? marketPrice)
+    {
+        var graded = card.GradingCompany != null && card.Grade != null;
+        var specifics = new List<ItemSpecific>();
+        void Add(string name, string? value)
+        {
+            if (!string.IsNullOrWhiteSpace(value)) specifics.Add(new ItemSpecific(name, value.Trim()));
+        }
+
+        Add("Game", TcgMatcher.GameDisplayName(card.Game));
+        Add("Card Name", card.Player);
+        Add("Set", card.SetName);
+        Add("Card Number", card.CardNumber);
+        Add("Rarity", card.Rarity);
+        Add("Finish", card.Parallel);
+        Add("Language", card.CardLanguage ?? "English");
+        Add("Manufacturer", card.Manufacturer);
+        Add("Year Manufactured", card.CardYear?.ToString());
+        Add("Autographed", card.IsAutograph == "Y" ? "Yes" : "No");
+        Add("Graded", graded ? "Yes" : "No");
+        if (graded)
+        {
+            Add("Professional Grader", GraderName(card.GradingCompany!));
+            Add("Grade", card.Grade!.Value.ToString("0.#"));
+            Add("Certification Number", card.CertNumber);
+        }
+        else
+        {
+            Add("Card Condition", "Near Mint or Better");
+        }
+
+        var category = TcgMatcher.NormalizeGame(card.Game) switch
+        {
+            "pokemon" => "Toys & Hobbies > Collectible Card Games > CCG Individual Cards (Game: Pokémon TCG)",
+            "mtg" => "Toys & Hobbies > Collectible Card Games > CCG Individual Cards (Game: Magic: The Gathering)",
+            "yugioh" => "Toys & Hobbies > Collectible Card Games > CCG Individual Cards (Game: Yu-Gi-Oh! TCG)",
+            _ => "Toys & Hobbies > Collectible Card Games > CCG Individual Cards"
+        };
+
+        var sb = new StringBuilder();
+        sb.AppendLine(card.EbayTitle);
+        sb.AppendLine();
+        var line = string.Join(" ", new[] { TcgMatcher.GameDisplayName(card.Game), card.Player }.Where(s => !string.IsNullOrWhiteSpace(s)));
+        if (line.Length > 0) sb.AppendLine(line);
+        var setLine = string.Join(" · ", new[] { card.SetName, card.CardNumber == null ? null : $"#{card.CardNumber}", card.Rarity }
+            .Where(s => !string.IsNullOrWhiteSpace(s)));
+        if (setLine.Length > 0) sb.AppendLine(setLine);
+        if (card.Parallel != null) sb.AppendLine($"Finish: {card.Parallel}");
+        if (card.CardLanguage != null && !card.CardLanguage.Equals("English", StringComparison.OrdinalIgnoreCase))
+            sb.AppendLine($"Language: {card.CardLanguage}");
+        if (card.IsAutograph == "Y") sb.AppendLine("Autographed");
+        if (graded) sb.AppendLine($"Graded {GraderName(card.GradingCompany!)} {card.Grade:0.#}");
+        sb.AppendLine();
+        if (!graded && card.ConditionNotes != null)
+        {
+            sb.AppendLine($"Condition: {card.ConditionNotes}");
+            sb.AppendLine();
+        }
+        sb.AppendLine("You'll receive the exact card pictured. Please review the photos, as they're part of the description.");
+        sb.AppendLine(graded
+            ? "Ships in a padded bubble mailer with the slab protected by bubble wrap."
+            : "Ships in a penny sleeve and top loader inside a bubble mailer, with tracking.");
+        sb.AppendLine("Ships within 1 business day of payment.");
+
+        return new ListingKit(
+            card.EbayTitle,
+            category,
+            graded ? "Graded" : "Ungraded",
+            specifics,
+            sb.ToString().Trim(),
+            BuildPricing(card, marketPrice),
+            "https://www.ebay.com/sl/sell");
+    }
+
     public static ListingPricing BuildPricing(CardInventoryItem card, decimal? marketPrice)
     {
         var cost = (card.CostBasis ?? 0) + (card.GradingCost ?? 0);
@@ -101,7 +179,9 @@ public static class ListingKitBuilder
             return new ListingPricing(market, Charm(market), null, null, breakEven, Round(SellerFees.NetProceeds(Charm(market))),
                 Round(SellerFees.NetProceeds(Charm(market)) - cost), "Lot",
                 $"At about ${market:0.00} this card nets very little after eBay's fees and the $0.40 order fee. " +
-                "Bundle it with similar cards (same player, team or set) into a lot, or sell it in person.");
+                (TcgMatcher.IsTcg(card.Category)
+                    ? "Bundle it with similar cards (same set, type or character) into a lot, or sell it in person."
+                    : "Bundle it with similar cards (same player, team or set) into a lot, or sell it in person."));
         }
 
         // List a bit above market so there's room to accept offers that land at market

@@ -36,19 +36,34 @@ public class MarketSnapshotService
         var query = BuildQuery(card);
         if (string.IsNullOrWhiteSpace(query)) return MarketSnapshot.Empty(query);
 
-        var listings = await _ebay.SearchListingsAsync(query, null, "price", limit: 60);
+        var tcg = TcgMatcher.IsTcg(card);
+        var listings = await _ebay.SearchListingsAsync(query, null, "price", limit: 60,
+            categoryId: EbaySearchClient.CategoryFor(card.Category));
 
         // eBay's keyword search is loose, so drop listings with a different grade or card number
         var wantedGrade = card.GradingCompany != null && card.Grade != null
             ? (card.GradingCompany.Trim().ToUpperInvariant(), card.Grade.Value)
             : ((string, decimal)?)null;
         var wantedNumber = card.CardNumber?.TrimStart('#').Trim().ToUpperInvariant();
+        var wantedTcgNumber = tcg ? TcgMatcher.NumberKey(card.CardNumber) : null;
 
-        var year = card.Year?.ToString();
+        // TCG titles rarely carry the year
+        var year = tcg ? null : card.Year?.ToString();
         var relevant = listings.Where(l =>
         {
             if (MultiCardListing.IsMatch(l.Title)) return false;
             if (year != null && !l.Title.Contains(year)) return false;
+            if (tcg)
+            {
+                var title = TcgMatcher.ParseTitle(l.Title, card.Game);
+                if (wantedGrade == null ? title.Grade != null : title.Grade != wantedGrade) return false;
+                var number = TcgMatcher.NumberKey(title.Number);
+                if (wantedTcgNumber != null && number != null && number != wantedTcgNumber) return false;
+                // English and Japanese printings sell at different prices
+                if (TcgMatcher.LanguageWord(card.Language) != TcgMatcher.LanguageWord(title.Language)) return false;
+                return l.CurrentPrice > 0;
+            }
+
             var parsed = TitleCleaner.Parse(l.Title);
             if (wantedGrade == null ? parsed.Grade != null : parsed.Grade != wantedGrade) return false;
             if (!string.IsNullOrEmpty(wantedNumber) && parsed.CardNumber != null && parsed.CardNumber != wantedNumber) return false;
@@ -83,6 +98,22 @@ public class MarketSnapshotService
 
     public static string BuildQuery(CardIdentification card)
     {
+        if (TcgMatcher.IsTcg(card))
+        {
+            // eBay sellers title TCG singles as name + collector number ("Charizard 4/102"), which
+            // is specific enough on its own; set names vary too much between sellers to require
+            var tcgParts = new List<string?>
+            {
+                TcgMatcher.GameWord(card.Game), card.Player,
+                string.IsNullOrWhiteSpace(card.CardNumber) ? card.Set : card.CardNumber.TrimStart('#'),
+                card.Parallel != null && !System.Text.RegularExpressions.Regex.IsMatch(card.Parallel, "^(holo|unlimited)$",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase) ? card.Parallel : null,
+                TcgMatcher.LanguageWord(card.Language),
+                card.GradingCompany != null && card.Grade != null ? $"{card.GradingCompany} {card.Grade:0.#}" : null
+            };
+            return string.Join(" ", tcgParts.Where(p => !string.IsNullOrWhiteSpace(p)));
+        }
+
         var parts = new List<string?>
         {
             card.Year?.ToString(), card.Manufacturer, card.Set, card.Player, card.Parallel,

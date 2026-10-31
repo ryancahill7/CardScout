@@ -15,6 +15,10 @@ public class Watchlist
     public string Notify { get; set; } = "Y";
     public string IsActive { get; set; } = "Y";
     public DateTime? LastRunAt { get; set; }
+    // "sports" or "tcg" (null = sports): picks the eBay category and how titles are matched
+    public string? Category { get; set; }
+    // TCG game hint (pokemon, mtg, ...); titles usually name the game anyway
+    public string? Game { get; set; }
     public DateTime CreatedAt { get; set; }
 }
 

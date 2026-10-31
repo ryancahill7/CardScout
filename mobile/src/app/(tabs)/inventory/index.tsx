@@ -3,23 +3,28 @@ import { useQuery } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { memo, useMemo, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ErrorBanner, Loading, ScreenTitle, StatusPicker, StatusPill } from '@/components/ui';
-import { Card, CardStatus, getCards, imageSource } from '@/lib/api';
+import { ErrorBanner, Loading, ScreenTitle, StatusPicker, StatusPill, ToggleChip } from '@/components/ui';
+import { Card, CardStatus, getCards, imageSource, TCG_GAMES } from '@/lib/api';
 import { formatMoney, formatSignedMoney, netProceeds } from '@/lib/money';
 import { colors, fonts, radius, space } from '@/lib/theme';
 
 export default function InventoryScreen() {
   const [status, setStatus] = useState<CardStatus | undefined>(undefined);
+  // 'sports', a TCG game key (pokemon, mtg...), or undefined for everything
+  const [kind, setKind] = useState<string | undefined>(undefined);
 
   // The whole collection is fetched once and filtered here, so switching filters is
   // instant and the summary always covers everything.
   const cards = useQuery({ queryKey: ['cards', 'ALL'], queryFn: () => getCards() });
   const visible = useMemo(
-    () => (status ? cards.data?.filter((c) => c.status === status) : cards.data) ?? [],
-    [cards.data, status],
+    () =>
+      (cards.data ?? []).filter(
+        (c) => (!status || c.status === status) && (!kind || kindOf(c) === kind),
+      ),
+    [cards.data, status, kind],
   );
 
   return (
@@ -46,6 +51,7 @@ export default function InventoryScreen() {
               <ScreenTitle title="Collection" subtitle={`${cards.data.length} card${cards.data.length === 1 ? '' : 's'}`} />
               {cards.data.length > 0 && <Summary cards={cards.data} />}
               <StatusPicker value={status} onChange={setStatus} includeAll />
+              <KindFilter cards={cards.data} value={kind} onChange={setKind} />
             </View>
           }
           ListEmptyComponent={
@@ -62,6 +68,34 @@ export default function InventoryScreen() {
         />
       )}
     </SafeAreaView>
+  );
+}
+
+// Sports cards, or the card's game for TCG cards
+const kindOf = (c: Card) => (c.category === 'tcg' ? (c.game ?? 'other') : 'sports');
+
+// Only shown once the collection mixes sports and TCG cards (or several games)
+function KindFilter({ cards, value, onChange }: { cards: Card[]; value?: string; onChange: (v?: string) => void }) {
+  const kinds = useMemo(() => {
+    const present = new Set<string>(cards.map(kindOf));
+    return [
+      { key: 'sports', label: 'Sports' },
+      ...TCG_GAMES.map((g) => ({ key: g.key as string, label: g.short })),
+    ].filter((k) => present.has(k.key));
+  }, [cards]);
+  if (kinds.length < 2) return null;
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm }}>
+      {kinds.map((k) => (
+        <ToggleChip
+          key={k.key}
+          label={k.label}
+          icon={k.key === 'sports' ? 'baseball-outline' : 'sparkles-outline'}
+          value={value === k.key}
+          onChange={(on) => onChange(on ? k.key : undefined)}
+        />
+      ))}
+    </ScrollView>
   );
 }
 
@@ -117,7 +151,10 @@ const CardTile = memo(function CardTile({ card }: { card: Card }) {
   const price =
     card.status === 'SOLD' ? card.soldPrice : card.status === 'LISTED' ? card.listedPrice : (card.marketPrice ?? card.suggestedPrice);
   const name = card.player ?? card.ebayTitle;
-  const meta = [card.year, card.set ?? card.manufacturer].filter(Boolean).join(' ');
+  const meta =
+    card.category === 'tcg'
+      ? [card.set, card.cardNumber].filter(Boolean).join(' · ')
+      : [card.year, card.set ?? card.manufacturer].filter(Boolean).join(' ');
 
   return (
     <Pressable
