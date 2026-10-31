@@ -9,6 +9,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 
 import { CapturedPhoto, CardCamera } from '@/components/card-camera';
 import { Button, ErrorBanner, Field, HoloFrame, Loading, SectionTitle, Surface } from '@/components/ui';
+import { UsageBanner } from '@/components/usage';
 import { VerdictResult } from '@/components/verdict-panel';
 import { analyzeLot, LotAnalysis } from '@/lib/api';
 import { prepareForUpload } from '@/lib/images';
@@ -78,6 +79,7 @@ export default function LotScreen() {
     <Stack.Screen options={{ headerShown: true }} />
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.background }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={100}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+        <UsageBanner />
         {photo && (
           <Pressable onPress={() => setCapturing(true)} disabled={analyze.isPending} accessibilityRole="button" accessibilityLabel="Retake lot photo">
             <HoloFrame borderRadius={radius.lg}>

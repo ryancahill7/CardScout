@@ -22,6 +22,7 @@ import { MarketPanel } from '@/components/market-panel';
 import { PricePanel } from '@/components/price-panel';
 import { SoldCompsPanel } from '@/components/sold-comps-panel';
 import { Button, ErrorBanner, HoloFrame, Loading, ScreenTitle, SectionTitle, Surface } from '@/components/ui';
+import { UsageBanner } from '@/components/usage';
 import { VerdictPanel } from '@/components/verdict-panel';
 import { Card, createCard, identifyCard, IdentifyResponse, PriceQuote, quoteRequestFrom } from '@/lib/api';
 import { isConfigured } from '@/lib/config';
@@ -200,6 +201,7 @@ export default function ScanScreen() {
               </Pressable>
             }
           />
+          <UsageBanner />
 
           <View style={styles.photoRow}>
             {(['front', 'back'] as const).map((side) => (

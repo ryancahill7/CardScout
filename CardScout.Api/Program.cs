@@ -1,5 +1,6 @@
 ﻿using CardScout.Api;
 using CardScout.Api.Endpoints;
+using CardScout.Core.Billing;
 using CardScout.Core.Comps;
 using CardScout.Core.Data;
 using CardScout.Core.Ebay;
@@ -8,6 +9,7 @@ using CardScout.Core.Identify;
 using CardScout.Core.Images;
 using CardScout.Core.Notifications;
 using CardScout.Core.Pricing;
+using CardScout.Core.Usage;
 Oracle.ManagedDataAccess.Client.OracleConfiguration.BindByName = true;
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
@@ -36,6 +38,7 @@ builder.Services.AddSingleton(new WatchlistRepository(oracleConnString));
 builder.Services.AddSingleton(new PushTokenRepository(oracleConnString));
 builder.Services.AddSingleton(new PriceHistoryRepository(oracleConnString));
 builder.Services.AddSingleton(new DealsRepository(oracleConnString));
+builder.Services.AddSingleton(new AiUsageRepository(oracleConnString));
 
 builder.Services.AddSingleton(new EbayAuthClient(new HttpClient(), config["Ebay:AppId"]!, config["Ebay:CertId"]!));
 builder.Services.AddSingleton(sp => new EbaySearchClient(new HttpClient(), sp.GetRequiredService<EbayAuthClient>()));
@@ -49,6 +52,13 @@ builder.Services.AddSingleton(new CardIdentifier(
     config["Anthropic:ApiKey"]!,
     config["Anthropic:Model"]!,
     config["Anthropic:Effort"] ?? "medium"));
+
+// Plans, AI metering and the free plan's monthly cap (Billing:*, AnthropicPricing:*)
+builder.Services.AddSingleton<ISubscriptionService, FreePlanSubscriptionService>();
+builder.Services.AddSingleton(PlanCatalog.FromConfiguration(config));
+builder.Services.AddSingleton(AiCostCalculator.FromConfiguration(config));
+builder.Services.AddSingleton(config.GetSection("Billing").Get<UsageOptions>() ?? new UsageOptions());
+builder.Services.AddSingleton<UsageMeter>();
 
 var imageRoot = Path.Combine(builder.Environment.ContentRootPath, config["Images:Root"] ?? "card-images");
 builder.Services.AddSingleton<IImageStorage>(new LocalDiskImageStorage(imageRoot));
@@ -73,5 +83,6 @@ app.MapCardEndpoints();
 app.MapLotEndpoints();
 app.MapWatchlistEndpoints();
 app.MapPortfolioEndpoints();
+app.MapUsageEndpoints();
 
 app.Run();

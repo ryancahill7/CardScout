@@ -9,6 +9,9 @@ public class CardIdentificationException : Exception
 {
     public string? RawResponse { get; }
 
+    // Tokens the failed call still billed (refusals, cut-off or malformed responses), for metering
+    public ScanUsage? Usage { get; init; }
+
     public CardIdentificationException(string message, string? rawResponse = null, Exception? inner = null)
         : base(message, inner)
     {
@@ -18,8 +21,8 @@ public class CardIdentificationException : Exception
 
 public record CardImage(byte[] Data, string MediaType);
 
-// Tokens billed for one identification call, for cost tracking
-public record ScanUsage(string Model, long InputTokens, long OutputTokens);
+// Tokens billed for one Claude call, for cost tracking (InputTokens excludes cached tokens)
+public record ScanUsage(string Model, long InputTokens, long OutputTokens, long CacheWriteTokens = 0, long CacheReadTokens = 0);
 
 public record CardIdentifyResult(CardIdentification Card, string RawJson, ScanUsage? Usage = null);
 
@@ -104,7 +107,14 @@ public class CardIdentifier
         content.Add(new BetaTextBlockParam { Text = Prompt.Replace("{{IMAGES}}", back != null ? FrontAndBack : FrontOnly) });
 
         var (json, usage) = await SendAsync(content, BuildSchema(), ct);
-        return new CardIdentifyResult(ParseAndValidate(json), json, usage);
+        try
+        {
+            return new CardIdentifyResult(ParseAndValidate(json), json, usage);
+        }
+        catch (CardIdentificationException ex) when (ex.Usage == null)
+        {
+            throw new CardIdentificationException(ex.Message, ex.RawResponse, ex.InnerException) { Usage = usage };
+        }
     }
 
     public async Task<LotIdentifyResult> IdentifyLotAsync(CardImage photo, CancellationToken ct = default)
@@ -119,9 +129,9 @@ public class CardIdentifier
         }
         catch (JsonException ex)
         {
-            throw new CardIdentificationException("The model's response wasn't valid lot JSON.", json, ex);
+            throw new CardIdentificationException("The model's response wasn't valid lot JSON.", json, ex) { Usage = usage };
         }
-        if (parsed == null) throw new CardIdentificationException("The model returned an empty response.", json);
+        if (parsed == null) throw new CardIdentificationException("The model returned an empty response.", json) { Usage = usage };
 
         var cards = parsed.Cards
             .Select(c => c with { Confidence = Math.Clamp(c.Confidence, 0m, 1m), CardNumber = c.CardNumber?.TrimStart('#').Trim() })
@@ -150,17 +160,24 @@ public class CardIdentifier
 
         var response = await _client.Beta.Messages.Create(parameters, ct);
 
+        // Thinking tokens are billed as output, so OutputTokens is the full output bill
+        var usage = new ScanUsage(
+            response.Model,
+            response.Usage.InputTokens,
+            response.Usage.OutputTokens,
+            response.Usage.CacheCreationInputTokens ?? 0,
+            response.Usage.CacheReadInputTokens ?? 0);
+
         if (response.StopReason == BetaStopReason.Refusal)
-            throw new CardIdentificationException("The model declined to identify this card.");
+            throw new CardIdentificationException("The model declined to identify this card.") { Usage = usage };
         if (response.StopReason == BetaStopReason.MaxTokens)
-            throw new CardIdentificationException("The model's response was cut off before it finished.");
+            throw new CardIdentificationException("The model's response was cut off before it finished.") { Usage = usage };
 
         var json = string.Concat(response.Content
             .Select(b => b.Value)
             .OfType<BetaTextBlock>()
             .Select(t => t.Text));
-        // Thinking tokens are billed as output, so OutputTokens is the full output bill
-        return (json, new ScanUsage(response.Model, response.Usage.InputTokens, response.Usage.OutputTokens));
+        return (json, usage);
     }
 
     private static BetaImageBlockParam ImageBlock(CardImage image) => new()

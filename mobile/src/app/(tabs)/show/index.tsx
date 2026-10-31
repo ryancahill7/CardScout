@@ -12,6 +12,7 @@ import { CapturedPhoto, CardCamera } from '@/components/card-camera';
 import { GradingPanel } from '@/components/grading-panel';
 import { SoldCompsPanel } from '@/components/sold-comps-panel';
 import { Button, ErrorBanner, Loading, ScreenTitle } from '@/components/ui';
+import { UsageBanner } from '@/components/usage';
 import { VerdictPanel } from '@/components/verdict-panel';
 import { Card, createCard, identifyCard, IdentifyResponse } from '@/lib/api';
 import { isConfigured } from '@/lib/config';
@@ -180,6 +181,7 @@ export default function ShowScreen() {
                   </Pressable>
                 }
               />
+              <UsageBanner />
               {items.length > 0 && (
                 <View style={styles.session}>
                   <SessionStat label="Scanned" value={String(session.scanned)} />

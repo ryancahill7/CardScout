@@ -5,6 +5,7 @@ using CardScout.Core.Identify;
 using CardScout.Core.Images;
 using CardScout.Core.Models;
 using CardScout.Core.Pricing;
+using CardScout.Core.Usage;
 
 namespace CardScout.Api.Endpoints;
 
@@ -21,7 +22,7 @@ public static class LotEndpoints
     // Multipart: photo (required), askingPrice, shipping, minProfit, minProfitPct (optional form fields)
     private static async Task<IResult> AnalyzeAsync(
         HttpRequest request, CurrentUser user, CardIdentifier identifier, CardPricingService pricing, IImageStorage images,
-        ILogger<CardIdentifier> logger, CancellationToken ct)
+        UsageMeter usage, ILogger<CardIdentifier> logger, CancellationToken ct)
     {
         if (!request.HasFormContentType) return Results.BadRequest(new { error = "Send the lot photo as multipart form data." });
         var form = await request.ReadFormAsync(ct);
@@ -39,6 +40,9 @@ public static class LotEndpoints
         var targets = new FlipTargets(Number("minProfit") ?? FlipTargets.Default.MinProfit,
             Number("minProfitPct") ?? FlipTargets.Default.MinProfitPct);
 
+        var check = await usage.CheckAsync(user.UserId, AiFeatures.Lot);
+        if (!check.Allowed) return UsageEndpoints.UsageLimitReached(check.Status);
+
         var image = await CardEndpoints.ReadImageAsync(photo!, ct);
 
         LotIdentifyResult lot;
@@ -49,6 +53,7 @@ public static class LotEndpoints
         catch (CardIdentificationException ex)
         {
             logger.LogWarning(ex, "Lot identification failed. Raw response: {Raw}", ex.RawResponse);
+            await usage.RecordAsync(user.UserId, AiFeatures.Lot, ex.Usage, succeeded: false);
             return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
         }
         catch (AnthropicApiException ex)
@@ -61,6 +66,7 @@ public static class LotEndpoints
         if (lot.Usage != null)
             logger.LogInformation("Lot scan by user {UserId}: {Model} {InputTokens} in / {OutputTokens} out tokens, {Cards} cards",
                 user.UserId, lot.Usage.Model, lot.Usage.InputTokens, lot.Usage.OutputTokens, lot.Cards.Count);
+        await usage.RecordAsync(user.UserId, AiFeatures.Lot, lot.Usage, succeeded: true);
 
         var results = new List<LotCardResult>();
         foreach (var card in lot.Cards.Take(MaxCardsToPrice))

@@ -1,3 +1,4 @@
+using CardScout.Core.Billing;
 using CardScout.Core.Data;
 using CardScout.Core.Models;
 
@@ -22,26 +23,48 @@ public static class WatchlistEndpoints
     private static async Task<IResult> ListAsync(CurrentUser user, WatchlistRepository repo) =>
         Results.Ok((await repo.GetAllAsync(user.UserId)).Select(WatchlistDto.From));
 
-    private static async Task<IResult> CreateAsync(WatchlistRequest request, CurrentUser user, WatchlistRepository repo)
+    private static async Task<IResult> CreateAsync(WatchlistRequest request, CurrentUser user, WatchlistRepository repo,
+        ISubscriptionService subscriptions, PlanCatalog plans)
     {
         var (watchlist, error) = FromRequest(request, user.UserId);
         if (error != null) return Results.BadRequest(new { error });
+        if (request.IsActive && await ActiveLimitReachedAsync(user.UserId, repo, subscriptions, plans) is { } limited)
+            return limited;
 
         var id = await repo.InsertAsync(watchlist!);
         var saved = await repo.GetByIdAsync(user.UserId, id);
         return Results.Created($"/api/watchlists/{id}", WatchlistDto.From(saved!));
     }
 
-    private static async Task<IResult> UpdateAsync(long id, WatchlistRequest request, CurrentUser user, WatchlistRepository repo)
+    private static async Task<IResult> UpdateAsync(long id, WatchlistRequest request, CurrentUser user, WatchlistRepository repo,
+        ISubscriptionService subscriptions, PlanCatalog plans)
     {
-        if (await repo.GetByIdAsync(user.UserId, id) == null) return Results.NotFound();
+        var existing = await repo.GetByIdAsync(user.UserId, id);
+        if (existing == null) return Results.NotFound();
 
         var (watchlist, error) = FromRequest(request, user.UserId);
         if (error != null) return Results.BadRequest(new { error });
+        // Only turning a paused list back on counts against the limit; editing an active one never does
+        if (request.IsActive && existing.IsActive != "Y"
+            && await ActiveLimitReachedAsync(user.UserId, repo, subscriptions, plans) is { } limited)
+            return limited;
 
         watchlist!.Id = id;
         await repo.UpdateAsync(watchlist);
         return Results.Ok(WatchlistDto.From((await repo.GetByIdAsync(user.UserId, id))!));
+    }
+
+    // eBay's search quota is per app and shared by everyone, so each plan caps its active watchlists
+    private static async Task<IResult?> ActiveLimitReachedAsync(long userId, WatchlistRepository repo,
+        ISubscriptionService subscriptions, PlanCatalog plans)
+    {
+        var plan = plans.Get(await subscriptions.GetPlanAsync(userId));
+        var active = (await repo.GetAllAsync(userId, activeOnly: true)).Count;
+        if (active < plan.MaxWatchlists) return null;
+        var message = plan.Id == Plans.Free
+            ? $"The free plan includes {plan.MaxWatchlists} active watchlists. Pause one, or upgrade to Pro for {plans.Get(Plans.Pro).MaxWatchlists}."
+            : $"You have the maximum of {plan.MaxWatchlists} active watchlists. Pause one to add another.";
+        return UsageEndpoints.PlanLimitReached(plan.Id, "watchlists", plan.MaxWatchlists, message);
     }
 
     private static async Task<IResult> DeleteAsync(long id, CurrentUser user, WatchlistRepository repo) =>

@@ -9,6 +9,7 @@ using CardScout.Core.Images;
 using CardScout.Core.Listing;
 using CardScout.Core.Models;
 using CardScout.Core.Pricing;
+using CardScout.Core.Usage;
 
 namespace CardScout.Api.Endpoints;
 
@@ -43,12 +44,16 @@ public static class CardEndpoints
 
     private static async Task<IResult> IdentifyAsync(
         IFormFile? front, IFormFile? back, CurrentUser user,
-        CardIdentifier identifier, CardPricingService pricing, IImageStorage images,
+        CardIdentifier identifier, CardPricingService pricing, IImageStorage images, UsageMeter usage,
         ILogger<CardIdentifier> logger, CancellationToken ct)
     {
         // The back is optional: show mode scans the front only, for speed
         var error = ValidateImage(front, "front") ?? (back == null ? null : ValidateImage(back, "back"));
         if (error != null) return Results.BadRequest(new { error });
+
+        var feature = back == null ? AiFeatures.IdentifyFront : AiFeatures.Identify;
+        var check = await usage.CheckAsync(user.UserId, feature);
+        if (!check.Allowed) return UsageEndpoints.UsageLimitReached(check.Status);
 
         var frontImage = await ReadImageAsync(front!, ct);
         var backImage = back == null ? null : await ReadImageAsync(back, ct);
@@ -61,6 +66,7 @@ public static class CardEndpoints
         catch (CardIdentificationException ex)
         {
             logger.LogWarning(ex, "Card identification failed. Raw response: {Raw}", ex.RawResponse);
+            await usage.RecordAsync(user.UserId, feature, ex.Usage, succeeded: false);
             return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
         }
         catch (AnthropicApiException ex)
@@ -73,6 +79,7 @@ public static class CardEndpoints
         if (result.Usage != null)
             logger.LogInformation("Scan by user {UserId}: {Model} {InputTokens} in / {OutputTokens} out tokens ({Sides})",
                 user.UserId, result.Usage.Model, result.Usage.InputTokens, result.Usage.OutputTokens, back == null ? "front only" : "front+back");
+        await usage.RecordAsync(user.UserId, feature, result.Usage, succeeded: true);
 
         // Pricing is best-effort: a SportsCardsPro outage shouldn't lose the identification
         var price = CardPriceQuote.None;
