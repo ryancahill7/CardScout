@@ -1,4 +1,4 @@
-namespace CardScout.Core.Models;
+﻿namespace CardScout.Core.Models;
 
 public class CardInventoryItem
 {
@@ -15,6 +15,7 @@ public class CardInventoryItem
     public string IsAutograph { get; set; } = "N";
     public string IsRelic { get; set; } = "N";
     public string? GradingCompany { get; set; }
+    public string? CertNumber { get; set; }
     public decimal? Grade { get; set; }
     public string? ConditionNotes { get; set; }
     public decimal? AiConfidence { get; set; }
@@ -29,6 +30,13 @@ public class CardInventoryItem
     public string? FrontImagePath { get; set; }
     public string? BackImagePath { get; set; }
     public string? AiRawJson { get; set; }
+    public string? PurchaseSource { get; set; }
+    public DateTime? PurchasedAt { get; set; }
+    public decimal? GradingCost { get; set; }
+    public decimal? SaleShippingCost { get; set; }
+    // Latest comp from PortfolioPriceWorker; SuggestedPrice is the user's own asking price
+    public decimal? MarketPrice { get; set; }
+    public DateTime? MarketPriceAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

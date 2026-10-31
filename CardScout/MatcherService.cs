@@ -1,7 +1,6 @@
-﻿using CardScout.Core.Comps;
-using CardScout.Core.Data;
+﻿using CardScout.Core.Data;
 using CardScout.Core.Ebay;
-using CardScout.Core.Matching;
+using CardScout.Core.Flip;
 using CardScout.Core.Models;
 using CardScout.Core.Pricing;
 
@@ -11,37 +10,23 @@ public class MatcherService : BackgroundService
 {
     private readonly ILogger<MatcherService> _logger;
     private readonly EbayListingsRepository _listingsRepo;
-    private readonly CompCacheRepository _compCacheRepo;
     private readonly DealsRepository _dealsRepo;
-    private readonly CompsClient _compsClient;
+    private readonly ListingEvaluator _evaluator;
     private readonly EbaySearchClient _ebay;
 
-    private const double MinConfidence = 0.55;
     private const decimal MinNetProfitDollars = 2m;
     private const decimal MinNetProfitPct = 5m;
-    private static decimal EstimateBuyShipping(decimal price)
-    {
-        return price switch
-        {
-            < 10m => 1.30m,   // plain tracked envelope (USPS Ground Advantage letter-ish rate)
-            < 30m => 3.50m,   // small bubble mailer
-            < 100m => 5.00m,  // padded mailer, toploader, team bag
-            _ => 7.50m         // higher-value item, more careful packaging
-        };
-    }
     public MatcherService(
         ILogger<MatcherService> logger,
         EbayListingsRepository listingsRepo,
-        CompCacheRepository compCacheRepo,
         DealsRepository dealsRepo,
-        CompsClient compsClient,
+        ListingEvaluator evaluator,
         EbaySearchClient ebay)
     {
         _logger = logger;
         _listingsRepo = listingsRepo;
-        _compCacheRepo = compCacheRepo;
         _dealsRepo = dealsRepo;
-        _compsClient = compsClient;
+        _evaluator = evaluator;
         _ebay = ebay;
     }
 
@@ -71,70 +56,15 @@ public class MatcherService : BackgroundService
 
     private async Task ProcessListingAsync(EbayListingRecord listing)
     {
-        var parsed = TitleCleaner.Parse(listing.Title);
-
-        var compRecord = await _compCacheRepo.GetCachedAsync(parsed.CleanedForSearch);
-        double confidence;
-
-        if (compRecord == null)
+        var result = await _evaluator.MatchAsync(listing.Title);
+        if (result.Match == null)
         {
-            var candidates = await _compsClient.SearchAsync(parsed.CleanedForSearch);
-            if (candidates.Count == 0)
-            {
-                await _listingsRepo.UpdateMatchStatusAsync(listing.ItemId, "NO_MATCH");
-                _logger.LogDebug("NO_MATCH (no candidates): {Title}", listing.Title);
-                return;
-            }
-
-            var scored = candidates
-                .Select(c => new { Candidate = c, Score = MatchScorer.ScoreMatch(parsed, c.ProductName, c.ConsoleName) })
-                .OrderByDescending(x => x.Score)
-                .First();
-
-            confidence = scored.Score;
-
-            if (confidence < MinConfidence)
-            {
-                await _listingsRepo.UpdateMatchStatusAsync(listing.ItemId, "NO_MATCH");
-                _logger.LogDebug("NO_MATCH (low confidence {Score:F2}): {Title} -> best candidate: {Candidate}",
-                    confidence, listing.Title, scored.Candidate.ProductName);
-                return;
-            }
-
-            var detail = await _compsClient.GetProductAsync(scored.Candidate.Id);
-            if (detail == null)
-            {
-                await _listingsRepo.UpdateMatchStatusAsync(listing.ItemId, "NO_MATCH");
-                return;
-            }
-
-            compRecord = new CompCacheRecord
-            {
-                SearchQuery = parsed.CleanedForSearch,
-                ProductId = detail.Id,
-                ProductName = detail.ProductName,
-                ConsoleName = detail.ConsoleName,
-                LoosePrice = detail.LoosePrice,
-                GradedPrice = detail.GradedPrice,
-                NewPrice = detail.NewPrice,
-                CibPrice = detail.CibPrice,
-                ManualOnlyPrice = detail.ManualOnlyPrice,
-                BoxOnlyPrice = detail.BoxOnlyPrice,
-                Bgs10Price = detail.Bgs10Price,
-                CompUrl = CompsClient.BuildSearchUrl(detail.ProductName, detail.ConsoleName),
-                LastUpdated = DateTime.UtcNow
-            };
-            await _compCacheRepo.UpsertAsync(compRecord);
+            await _listingsRepo.UpdateMatchStatusAsync(listing.ItemId, "NO_MATCH");
+            _logger.LogDebug("NO_MATCH ({Reason}): {Title}", result.NoMatchReason, listing.Title);
+            return;
         }
-        else
-        {
-            confidence = MatchScorer.ScoreMatch(parsed, compRecord.ProductName ?? "", compRecord.ConsoleName ?? "");
-            if (confidence < MinConfidence)
-            {
-                await _listingsRepo.UpdateMatchStatusAsync(listing.ItemId, "NO_MATCH");
-                return;
-            }
-        }
+
+        var (compRecord, confidence, parsed) = result.Match;
 
         var compPrice = CompPriceSelector.SelectPrice(compRecord, parsed.Grade);
 
@@ -148,7 +78,7 @@ public class MatcherService : BackgroundService
         var discountPct = (compPrice.Value - listing.CurrentPrice) / compPrice.Value * 100m;
         discountPct = Math.Clamp(discountPct, -99999.99m, 99999.99m);
 
-        var buyShipping = listing.ShippingCost ?? EstimateBuyShipping(listing.CurrentPrice);
+        var buyShipping = listing.ShippingCost ?? SellerFees.EstimateBuyShipping(listing.CurrentPrice);
         var acquisitionCost = listing.CurrentPrice + buyShipping;
 
         var netProceeds = SellerFees.NetProceeds(compPrice.Value);

@@ -47,6 +47,12 @@
           "photosPermission": "CardScout lets you pick existing card photos from your library.",
           "microphonePermission": false
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#5BF2B0"
+        }
       ]
     ],
     "experiments": {

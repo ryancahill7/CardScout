@@ -1,9 +1,12 @@
-using CardScout.Api;
+﻿using CardScout.Api;
 using CardScout.Api.Endpoints;
 using CardScout.Core.Comps;
 using CardScout.Core.Data;
+using CardScout.Core.Ebay;
+using CardScout.Core.Flip;
 using CardScout.Core.Identify;
 using CardScout.Core.Images;
+using CardScout.Core.Notifications;
 using CardScout.Core.Pricing;
 Oracle.ManagedDataAccess.Client.OracleConfiguration.BindByName = true;
 var builder = WebApplication.CreateBuilder(args);
@@ -29,6 +32,16 @@ if (args.Length > 0 && args[0] == "create-user")
 builder.Services.AddSingleton(new CardUsersRepository(oracleConnString));
 builder.Services.AddSingleton(new CardInventoryRepository(oracleConnString));
 builder.Services.AddSingleton(new CompCacheRepository(oracleConnString));
+builder.Services.AddSingleton(new WatchlistRepository(oracleConnString));
+builder.Services.AddSingleton(new PushTokenRepository(oracleConnString));
+builder.Services.AddSingleton(new PriceHistoryRepository(oracleConnString));
+builder.Services.AddSingleton(new DealsRepository(oracleConnString));
+
+builder.Services.AddSingleton(new EbayAuthClient(new HttpClient(), config["Ebay:AppId"]!, config["Ebay:CertId"]!));
+builder.Services.AddSingleton(sp => new EbaySearchClient(new HttpClient(), sp.GetRequiredService<EbayAuthClient>()));
+builder.Services.AddSingleton<MarketSnapshotService>();
+builder.Services.AddSingleton(sp => new ExpoPushClient(
+    new HttpClient(), sp.GetRequiredService<PushTokenRepository>(), sp.GetRequiredService<ILogger<ExpoPushClient>>()));
 
 builder.Services.AddSingleton(new CompsClient(new HttpClient(), config["SportsCardsPro:Token"]!));
 builder.Services.AddSingleton<CardPricingService>();
@@ -57,5 +70,8 @@ app.UseMiddleware<ApiKeyMiddleware>();
 
 app.MapGet("/", () => Results.Ok(new { service = "CardScout.Api", status = "ok" }));
 app.MapCardEndpoints();
+app.MapLotEndpoints();
+app.MapWatchlistEndpoints();
+app.MapPortfolioEndpoints();
 
 app.Run();

@@ -6,7 +6,7 @@ namespace CardScout.Core.Ebay;
 public record EbayListing(
     string ItemId, string Title, decimal CurrentPrice,
     DateTime? EndTime, string ItemUrl, string? Condition, string ListingType,
-    decimal? ShippingCost);
+    decimal? ShippingCost, string? ImageUrl = null);
 
 public class EbaySearchClient
 {
@@ -202,6 +202,95 @@ public class EbaySearchClient
         }
 
         return results;
+    }
+    // General keyword search across all trading cards (not just baseball), used by
+    // watchlists and the show-mode market check. buyingOption is AUCTION, FIXED_PRICE or
+    // null for both; sort is an eBay sort value like "newlyListed" or "endingSoonest".
+    public async Task<List<EbayListing>> SearchListingsAsync(
+        string query, string? buyingOption, string sort, int limit = 25, DateTime? endBefore = null, decimal? maxPrice = null)
+    {
+        var token = await _auth.GetTokenAsync();
+
+        var filters = new List<string>();
+        if (buyingOption != null) filters.Add($"buyingOptions:{{{buyingOption}}}");
+        if (endBefore != null) filters.Add($"itemEndDate:[..{endBefore.Value.ToUniversalTime():yyyy-MM-ddTHH:mm:ss.fffZ}]");
+        if (maxPrice != null) filters.Add($"price:[..{maxPrice.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}],priceCurrency:USD");
+
+        var url = "https://api.ebay.com/buy/browse/v1/item_summary/search" +
+                  $"?q={Uri.EscapeDataString(query)}" +
+                  $"&category_ids={BaseballCardsCategoryId}" +
+                  (filters.Count > 0 ? $"&filter={Uri.EscapeDataString(string.Join(",", filters))}" : "") +
+                  $"&sort={sort}" +
+                  $"&limit={Math.Clamp(limit, 1, 200)}";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.Add("X-EBAY-C-MARKETPLACE-ID", "EBAY_US");
+        request.Headers.Add("X-EBAY-C-ENDUSERCTX", "contextualLocation=country=US,zip=77002");
+
+        var response = await _http.SendAsync(request);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync();
+            throw new HttpRequestException($"eBay API error {response.StatusCode}: {errorBody}");
+        }
+
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var results = new List<EbayListing>();
+        if (!doc.RootElement.TryGetProperty("itemSummaries", out var items))
+            return results;
+
+        foreach (var item in items.EnumerateArray())
+        {
+            try
+            {
+                results.Add(ParseSummary(item));
+            }
+            catch (Exception ex) when (ex is KeyNotFoundException or FormatException or InvalidOperationException)
+            {
+                Console.WriteLine($"Skipped one item due to parse error: {ex.Message}");
+            }
+        }
+        return results;
+    }
+
+    private static EbayListing ParseSummary(JsonElement item)
+    {
+        static decimal? Money(JsonElement parent, string name) =>
+            parent.TryGetProperty(name, out var el) && el.TryGetProperty("value", out var v)
+                ? decimal.Parse(v.GetString()!, System.Globalization.CultureInfo.InvariantCulture)
+                : null;
+
+        var listingType = "FIXED_PRICE";
+        if (item.TryGetProperty("buyingOptions", out var boArr) &&
+            boArr.EnumerateArray().Any(bo => bo.GetString() == "AUCTION"))
+            listingType = "AUCTION";
+
+        // Auctions carry the live bid in currentBidPrice; "price" can be the start price
+        var price = (listingType == "AUCTION" ? Money(item, "currentBidPrice") ?? Money(item, "price") : Money(item, "price"))
+                    ?? Money(item, "currentBidPrice") ?? 0;
+
+        decimal? shipping = null;
+        if (item.TryGetProperty("shippingOptions", out var shippingArr) && shippingArr.GetArrayLength() > 0)
+            shipping = Money(shippingArr[0], "shippingCost");
+
+        string? image = null;
+        if (item.TryGetProperty("image", out var img) && img.TryGetProperty("imageUrl", out var imgUrl))
+            image = imgUrl.GetString();
+        else if (item.TryGetProperty("thumbnailImages", out var thumbs) && thumbs.GetArrayLength() > 0 &&
+                 thumbs[0].TryGetProperty("imageUrl", out var thumbUrl))
+            image = thumbUrl.GetString();
+
+        return new EbayListing(
+            item.GetProperty("itemId").GetString()!,
+            item.GetProperty("title").GetString()!,
+            price,
+            item.TryGetProperty("itemEndDate", out var end) ? end.GetDateTime() : null,
+            item.TryGetProperty("itemWebUrl", out var urlEl) ? urlEl.GetString() ?? "" : "",
+            item.TryGetProperty("condition", out var condEl) ? condEl.GetString() : null,
+            listingType,
+            shipping,
+            image);
     }
     public async Task<decimal?> GetActualShippingCostAsync(string itemId)
     {

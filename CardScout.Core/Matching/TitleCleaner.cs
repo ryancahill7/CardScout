@@ -38,7 +38,7 @@ public static class TitleCleaner
         var result = new ParsedTitle();
         var working = ebayTitle;
 
-        var gradeMatch = Regex.Match(working, @"\b(PSA|BGS|SGC|CGC)\s*(\d+(\.\d)?)\b", RegexOptions.IgnoreCase);
+        var gradeMatch = Regex.Match(working, @"\b(PSA|BGS|SGC|CGC|TAG)\s*(\d+(\.\d)?)\b", RegexOptions.IgnoreCase);
         if (gradeMatch.Success)
         {
             result.Grade = (gradeMatch.Groups[1].Value.ToUpper(), decimal.Parse(gradeMatch.Groups[2].Value));

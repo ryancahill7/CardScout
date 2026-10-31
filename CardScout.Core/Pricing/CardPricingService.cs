@@ -1,4 +1,4 @@
-using CardScout.Core.Comps;
+﻿using CardScout.Core.Comps;
 using CardScout.Core.Data;
 using CardScout.Core.Matching;
 using CardScout.Core.Models;
@@ -74,28 +74,13 @@ public class CardPricingService
     private async Task<CompCacheRecord?> GetProductAsync(string cacheKey, string productId)
     {
         var cached = await _compCacheRepo.GetCachedAsync(cacheKey);
-        if (cached != null && cached.ProductId == productId && DateTime.Now - cached.LastUpdated < CacheMaxAge)
+        if (cached != null && cached.ProductId == productId && cached.HasFullLadder && DateTime.Now - cached.LastUpdated < CacheMaxAge)
             return cached;
 
         var detail = await _compsClient.GetProductAsync(productId);
         if (detail == null) return cached?.ProductId == productId ? cached : null;
 
-        var record = new CompCacheRecord
-        {
-            SearchQuery = cacheKey,
-            ProductId = detail.Id,
-            ProductName = detail.ProductName,
-            ConsoleName = detail.ConsoleName,
-            LoosePrice = detail.LoosePrice,
-            GradedPrice = detail.GradedPrice,
-            NewPrice = detail.NewPrice,
-            CibPrice = detail.CibPrice,
-            ManualOnlyPrice = detail.ManualOnlyPrice,
-            BoxOnlyPrice = detail.BoxOnlyPrice,
-            Bgs10Price = detail.Bgs10Price,
-            CompUrl = CompsClient.BuildSearchUrl(detail.ProductName, detail.ConsoleName),
-            LastUpdated = DateTime.Now
-        };
+        var record = CompCacheRecord.FromDetail(cacheKey, detail);
         await _compCacheRepo.UpsertAsync(record);
         return record;
     }
@@ -122,7 +107,8 @@ public class CardPricingService
             manual,
             comp.LastUpdated,
             tiers,
-            alternatives);
+            alternatives,
+            comp.SalesVolume);
     }
 
     // Builds an eBay-style title from structured fields so TitleCleaner can pick up

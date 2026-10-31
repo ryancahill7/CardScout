@@ -103,7 +103,8 @@ export function PricePanel({
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.ladder}
             style={styles.ladderScroll}>
-            {quote!.tiers.map((tier) => {
+            {/* Grades with no sales data are hidden, except the card's own grade so a gap is visible */}
+            {quote!.tiers.filter((t) => t.price != null || t.key === quote!.selectedTier).map((tier) => {
               const isGrade = tier.key === quote!.selectedTier;
               const isActive = tier.price != null && tier.price === valuePrice;
               return (

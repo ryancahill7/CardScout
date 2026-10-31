@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   FadeInDown,
@@ -17,12 +17,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CapturedPhoto, CardCamera } from '@/components/card-camera';
 import { CardForm, CardFormValues, fromFormValues, parseNumber, toFormValues } from '@/components/card-form';
+import { GradingPanel } from '@/components/grading-panel';
+import { MarketPanel } from '@/components/market-panel';
 import { PricePanel } from '@/components/price-panel';
-import { Button, ErrorBanner, HoloFrame, Loading, ScreenTitle } from '@/components/ui';
-import { Card, createCard, identifyCard, IdentifyResponse } from '@/lib/api';
+import { SoldCompsPanel } from '@/components/sold-comps-panel';
+import { Button, ErrorBanner, HoloFrame, Loading, ScreenTitle, SectionTitle, Surface } from '@/components/ui';
+import { VerdictPanel } from '@/components/verdict-panel';
+import { Card, createCard, identifyCard, IdentifyResponse, PriceQuote, quoteRequestFrom } from '@/lib/api';
 import { isConfigured } from '@/lib/config';
 import { prepareForUpload } from '@/lib/images';
 import { formatMoney } from '@/lib/money';
+import { useSettings } from '@/lib/settings';
 import { colors, fonts, radius, space } from '@/lib/theme';
 import { useCardPricing } from '@/lib/use-pricing';
 
@@ -41,15 +46,24 @@ export default function ScanScreen() {
   const [form, setForm] = useState<CardFormValues | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [saved, setSaved] = useState<Card | null>(null);
+  const [asking, setAsking] = useState('');
+  const settings = useSettings();
 
   // A new quote replaces the price in the form (the user can still type over it)
   const pricing = useCardPricing(form, (quote) =>
     setForm((f) => f && { ...f, suggestedPrice: quote.suggestedPrice == null ? f.suggestedPrice : quote.suggestedPrice.toFixed(2) }),
   );
 
+  // Bumped by Start over, so a slow identify that finishes afterwards is ignored
+  const attempt = useRef(0);
   const identify = useMutation({
-    mutationFn: () => identifyCard(photos.front!, photos.back!),
-    onSuccess: (result) => {
+    mutationFn: async () => {
+      const mine = ++attempt.current;
+      const result = await identifyCard(photos.front!, photos.back!);
+      return { result, stale: mine !== attempt.current };
+    },
+    onSuccess: ({ result, stale }) => {
+      if (stale) return;
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       const values = toFormValues({
         ...result.card,
@@ -74,12 +88,14 @@ export default function ScanScreen() {
   });
 
   function reset() {
+    attempt.current++;
     setPhotos({ front: null, back: null });
     setCapturing('front');
     setIdentified(null);
     setForm(null);
     setFormError(null);
     setSaved(null);
+    setAsking('');
     setPhotoError(null);
     pricing.reset();
     identify.reset();
@@ -174,13 +190,13 @@ export default function ScanScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
           <ScreenTitle
             title={identified ? 'Review' : 'Scan'}
             subtitle={identified ? 'Check the details, then add it to your collection' : 'Both sides captured. Ready when you are.'}
             right={
-              <Pressable onPress={reset} disabled={busy} hitSlop={10} accessibilityRole="button" accessibilityLabel="Start over">
-                <Text style={[styles.link, busy && { opacity: 0.4 }]}>Start over</Text>
+              <Pressable onPress={reset} disabled={save.isPending} hitSlop={10} accessibilityRole="button" accessibilityLabel="Start over">
+                <Text style={[styles.link, save.isPending && { opacity: 0.4 }]}>{identify.isPending ? 'Cancel' : 'Start over'}</Text>
               </Pressable>
             }
           />
@@ -228,6 +244,25 @@ export default function ScanScreen() {
                 onPickAlternative={(id) => pricing.reprice(id)}
                 onUsePrice={(p) => setForm({ ...form, suggestedPrice: p.toFixed(2) })}
               />
+              {pricing.quote && pricing.quote.suggestedPrice != null && <ScanSoldComps form={form} quote={pricing.quote} />}
+              <Surface>
+                <SectionTitle>Buying it?</SectionTitle>
+                <VerdictPanel
+                  marketPrice={pricing.quote?.suggestedPrice}
+                  matchConfidence={pricing.quote?.matchConfidence}
+                  asking={asking}
+                  onAskingChange={(v) => {
+                    setAsking(v);
+                    // What you pay is your cost basis unless you've typed one
+                    setForm((f) => f && (f.costBasis.trim() === '' || f.costBasis === asking ? { ...f, costBasis: v } : f));
+                  }}
+                  targets={settings.targets}
+                />
+              </Surface>
+              {pricing.quote && !form.gradingCompany.trim() && (
+                <GradingPanel tiers={pricing.quote.tiers} outlook={identified.card.gradeOutlook} />
+              )}
+              <ScanMarket form={form} />
               <CardForm values={form} onChange={setForm} />
               {formError && <ErrorBanner message={formError} />}
               {save.isError && <ErrorBanner message={save.error.message} />}
@@ -239,6 +274,17 @@ export default function ScanScreen() {
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
+}
+
+function ScanSoldComps({ form, quote }: { form: CardFormValues; quote: PriceQuote }) {
+  const parsed = fromFormValues(form);
+  return parsed.ok ? <SoldCompsPanel quote={quote} card={parsed.fields} /> : null;
+}
+
+// eBay listings for the card as currently entered
+function ScanMarket({ form }: { form: CardFormValues }) {
+  const parsed = fromFormValues(form);
+  return <MarketPanel request={parsed.ok ? quoteRequestFrom(parsed.fields) : null} />;
 }
 
 function PhotoSlot({

@@ -2,15 +2,19 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FlipInYLeft } from 'react-native-reanimated';
 
 import { CardForm, CardFormValues, fromFormValues, parseNumber, toFormValues } from '@/components/card-form';
+import { GradingPanel } from '@/components/grading-panel';
+import { MarketPanel } from '@/components/market-panel';
 import { PricePanel } from '@/components/price-panel';
+import { SoldCompsPanel } from '@/components/sold-comps-panel';
+import { Sparkline } from '@/components/sparkline';
 import { Button, ErrorBanner, Field, HoloFrame, Loading, SectionTitle, StatusPicker, StatusPill, Surface } from '@/components/ui';
-import { Card, CardStatus, getCard, imageSource, updateCard } from '@/lib/api';
+import { Card, CardStatus, getCard, getCardHistory, imageSource, quoteRequestFrom, updateCard } from '@/lib/api';
 import { formatMoney, formatSignedMoney, netProceeds } from '@/lib/money';
 import { colors, fonts, radius, space } from '@/lib/theme';
 import { useCardPricing } from '@/lib/use-pricing';
@@ -19,6 +23,9 @@ interface SaleValues {
   status: CardStatus;
   listedPrice: string;
   soldPrice: string;
+  saleShippingCost: string;
+  gradingCost: string;
+  purchaseSource: string;
 }
 
 const money = (v: number | null) => (v == null ? '' : v.toFixed(2));
@@ -29,6 +36,7 @@ export default function CardDetailScreen() {
   const cardId = Number(id);
 
   const card = useQuery({ queryKey: ['card', cardId], queryFn: () => getCard(cardId), enabled: Number.isFinite(cardId) });
+  const history = useQuery({ queryKey: ['card-history', cardId], queryFn: () => getCardHistory(cardId), enabled: Number.isFinite(cardId) });
 
   const [form, setForm] = useState<CardFormValues | null>(null);
   const [sale, setSale] = useState<SaleValues | null>(null);
@@ -62,7 +70,14 @@ export default function CardDetailScreen() {
 
   function loadForm(c: Card) {
     setForm(toFormValues(c));
-    setSale({ status: c.status, listedPrice: money(c.listedPrice), soldPrice: money(c.soldPrice) });
+    setSale({
+      status: c.status,
+      listedPrice: money(c.listedPrice),
+      soldPrice: money(c.soldPrice),
+      saleShippingCost: money(c.saleShippingCost),
+      gradingCost: money(c.gradingCost),
+      purchaseSource: c.purchaseSource ?? '',
+    });
   }
 
   // Initialize the editable form once the card loads (and only then, so edits aren't clobbered by refetches).
@@ -99,7 +114,9 @@ export default function CardDetailScreen() {
     }
     const listedPrice = parseNumber(sale.listedPrice);
     const soldPrice = parseNumber(sale.soldPrice);
-    if (listedPrice === undefined || soldPrice === undefined) {
+    const saleShippingCost = parseNumber(sale.saleShippingCost);
+    const gradingCost = parseNumber(sale.gradingCost);
+    if ([listedPrice, soldPrice, saleShippingCost, gradingCost].includes(undefined)) {
       setFormError('Prices must be numbers.');
       return;
     }
@@ -107,8 +124,11 @@ export default function CardDetailScreen() {
     save.mutate({
       ...parsed.fields,
       status: sale.status,
-      listedPrice,
-      soldPrice,
+      listedPrice: listedPrice ?? null,
+      soldPrice: soldPrice ?? null,
+      saleShippingCost: saleShippingCost ?? null,
+      gradingCost: gradingCost ?? null,
+      purchaseSource: sale.purchaseSource.trim() || null,
       compProductId: pricing.quote?.compProductId ?? card.data?.compProductId ?? null,
     });
   }
@@ -127,6 +147,11 @@ export default function CardDetailScreen() {
   const shown = images[side];
   const costBasis = parseNumber(form.costBasis) ?? null;
   const soldPrice = parseNumber(sale.soldPrice) ?? null;
+  const allInCost = costBasis == null && !parseNumber(sale.gradingCost) ? null : (costBasis ?? 0) + (parseNumber(sale.gradingCost) ?? 0);
+  const saleProfit = soldPrice == null || allInCost == null ? null : netProceeds(soldPrice) - (parseNumber(sale.saleShippingCost) ?? 0) - allInCost;
+  const parsedFields = fromFormValues(form);
+  const marketRequest = parsedFields.ok ? quoteRequestFrom(parsedFields.fields) : null;
+  const trend = history.data?.map((p) => p.price) ?? [];
   const subtitle = [form.year, form.manufacturer, form.set, form.cardNumber && `#${form.cardNumber}`]
     .filter(Boolean)
     .join(' · ');
@@ -136,7 +161,7 @@ export default function CardDetailScreen() {
       style={{ flex: 1, backgroundColor: colors.background }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={100}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
         <Pressable
           onPress={() => {
             void Haptics.selectionAsync();
@@ -178,6 +203,37 @@ export default function CardDetailScreen() {
           onUsePrice={(p) => setForm({ ...form, suggestedPrice: p.toFixed(2) })}
         />
 
+        {pricing.quote && pricing.quote.suggestedPrice != null && parsedFields.ok && (
+          <SoldCompsPanel quote={pricing.quote} card={parsedFields.fields} />
+        )}
+
+        {trend.length >= 2 && (
+          <Surface>
+            <SectionTitle
+              right={
+                <Text style={[styles.muted, { color: trend[trend.length - 1] >= trend[0] ? colors.primary : colors.danger }]}>
+                  {formatSignedMoney(trend[trend.length - 1] - trend[0])} since {new Date(history.data![0].capturedAt).toLocaleDateString()}
+                </Text>
+              }>
+              Market trend
+            </SectionTitle>
+            <Sparkline values={trend} height={48} />
+          </Surface>
+        )}
+
+        {card.data.status !== 'SOLD' && (
+          <Button
+            title="List on eBay"
+            icon="pricetag-outline"
+            variant="secondary"
+            onPress={() => router.push({ pathname: '/inventory/listing/[id]', params: { id: String(cardId) } })}
+          />
+        )}
+
+        {pricing.quote && !form.gradingCompany.trim() && <GradingPanel tiers={pricing.quote.tiers} />}
+
+        <MarketPanel request={marketRequest} />
+
         <Surface>
           <SectionTitle>Status</SectionTitle>
           <StatusPicker value={sale.status} onChange={(s) => s && setSale({ ...sale, status: s })} />
@@ -201,19 +257,41 @@ export default function CardDetailScreen() {
               />
             </View>
           </View>
+          <View style={{ flexDirection: 'row', gap: space.md }}>
+            <View style={{ flex: 1 }}>
+              <Field
+                label="Grading cost"
+                value={sale.gradingCost}
+                onChangeText={(v) => setSale({ ...sale, gradingCost: v })}
+                keyboardType="decimal-pad"
+                placeholder="—"
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Field
+                label="Shipping you paid"
+                value={sale.saleShippingCost}
+                onChangeText={(v) => setSale({ ...sale, saleShippingCost: v })}
+                keyboardType="decimal-pad"
+                placeholder="—"
+              />
+            </View>
+          </View>
+          <Field
+            label="Bought from"
+            value={sale.purchaseSource}
+            onChangeText={(v) => setSale({ ...sale, purchaseSource: v })}
+            placeholder="e.g. Card show, eBay, pack"
+          />
           {soldPrice != null && (
             <View style={styles.saleResult}>
               <Text style={styles.muted}>
                 Netted {formatMoney(netProceeds(soldPrice))} after fees
                 {card.data.soldAt ? ` · ${new Date(card.data.soldAt).toLocaleDateString()}` : ''}
               </Text>
-              {costBasis != null && (
-                <Text
-                  style={[
-                    styles.saleProfit,
-                    { color: netProceeds(soldPrice) - costBasis >= 0 ? colors.primary : colors.danger },
-                  ]}>
-                  {formatSignedMoney(netProceeds(soldPrice) - costBasis)}
+              {saleProfit != null && (
+                <Text style={[styles.saleProfit, { color: saleProfit >= 0 ? colors.primary : colors.danger }]}>
+                  {formatSignedMoney(saleProfit)}
                 </Text>
               )}
             </View>

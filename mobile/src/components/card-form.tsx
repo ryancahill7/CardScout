@@ -19,6 +19,7 @@ export interface CardFormValues {
   isRelic: boolean;
   gradingCompany: string;
   grade: string;
+  certNumber: string;
   conditionNotes: string;
   ebayTitle: string;
   suggestedPrice: string;
@@ -27,7 +28,9 @@ export interface CardFormValues {
 
 const str = (v: string | number | null | undefined) => (v == null ? '' : String(v));
 
-export function toFormValues(c: Omit<CardFields, 'ebayTitle'> & { ebayTitle: string }): CardFormValues {
+export function toFormValues(
+  c: Omit<CardFields, 'ebayTitle' | 'certNumber'> & { ebayTitle: string; certNumber?: string | null },
+): CardFormValues {
   return {
     player: str(c.player),
     year: str(c.year),
@@ -41,6 +44,7 @@ export function toFormValues(c: Omit<CardFields, 'ebayTitle'> & { ebayTitle: str
     isRelic: c.isRelic,
     gradingCompany: str(c.gradingCompany),
     grade: str(c.grade),
+    certNumber: str(c.certNumber),
     conditionNotes: str(c.conditionNotes),
     ebayTitle: c.ebayTitle,
     suggestedPrice: c.suggestedPrice == null ? '' : c.suggestedPrice.toFixed(2),
@@ -90,6 +94,7 @@ export function fromFormValues(v: CardFormValues): ParseResult {
       isRelic: v.isRelic,
       gradingCompany: text(v.gradingCompany)?.toUpperCase() ?? null,
       grade: numbers.grade ?? null,
+      certNumber: text(v.certNumber)?.replace(/\s+/g, '') ?? null,
       conditionNotes: text(v.conditionNotes),
       ebayTitle: title,
       suggestedPrice: numbers.suggestedPrice ?? null,
@@ -174,10 +179,36 @@ export function CardForm({
           />
           <Field label="Grade" value={values.grade} onChangeText={set('grade')} keyboardType="decimal-pad" placeholder="—" />
         </Row>
+        {values.gradingCompany.trim() !== '' && (
+          <Field
+            label="Cert #"
+            value={values.certNumber}
+            onChangeText={set('certNumber')}
+            keyboardType="number-pad"
+            placeholder="From the slab label"
+            hint={certHint(values.gradingCompany)}
+          />
+        )}
         <Field label="Condition notes" value={values.conditionNotes} onChangeText={set('conditionNotes')} multiline />
       </Surface>
     </View>
   );
+}
+
+// Where to verify a slab: PSA and CGC have direct cert pages
+export function certUrl(grader: string | null | undefined, cert: string | null | undefined) {
+  if (!grader || !cert) return null;
+  const g = grader.trim().toUpperCase();
+  if (g === 'PSA') return `https://www.psacard.com/cert/${encodeURIComponent(cert)}`;
+  if (g === 'CGC') return `https://www.cgccards.com/certlookup/${encodeURIComponent(cert)}/`;
+  if (g === 'SGC') return 'https://gosgc.com/cert-code-lookup';
+  if (g === 'BGS' || g === 'BVG') return 'https://www.beckett.com/grading/card-lookup';
+  if (g === 'TAG') return 'https://my.taggrading.com/pop-report';
+  return null;
+}
+
+function certHint(grader: string) {
+  return grader.trim().toUpperCase() === 'PSA' ? 'Verify at psacard.com/cert' : 'On the slab label';
 }
 
 function Row({ children, ratio = [1, 1] }: { children: ReactNode[]; ratio?: number[] }) {

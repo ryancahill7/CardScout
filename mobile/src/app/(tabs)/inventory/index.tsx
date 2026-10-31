@@ -69,10 +69,11 @@ function Summary({ cards }: { cards: Card[] }) {
   const stats = useMemo(() => {
     const held = cards.filter((c) => c.status !== 'SOLD');
     const sold = cards.filter((c) => c.status === 'SOLD' && c.soldPrice != null);
+    const cost = (c: Card) => (c.costBasis ?? 0) + (c.gradingCost ?? 0);
     return {
-      value: held.reduce((sum, c) => sum + (c.listedPrice ?? c.suggestedPrice ?? 0), 0),
-      cost: held.reduce((sum, c) => sum + (c.costBasis ?? 0), 0),
-      realized: sold.reduce((sum, c) => sum + netProceeds(c.soldPrice!) - (c.costBasis ?? 0), 0),
+      value: held.reduce((sum, c) => sum + (c.marketPrice ?? c.listedPrice ?? c.suggestedPrice ?? 0), 0),
+      cost: held.reduce((sum, c) => sum + cost(c), 0),
+      realized: sold.reduce((sum, c) => sum + netProceeds(c.soldPrice!) - (c.saleShippingCost ?? 0) - cost(c), 0),
       soldCount: sold.length,
     };
   }, [cards]);
@@ -89,6 +90,15 @@ function Summary({ cards }: { cards: Card[] }) {
           color={stats.soldCount ? (stats.realized >= 0 ? colors.primary : colors.danger) : undefined}
         />
       </View>
+      <Pressable
+        onPress={() => router.push('/inventory/pnl')}
+        accessibilityRole="button"
+        accessibilityLabel="Profit and loss"
+        style={({ pressed }) => [styles.pnlLink, pressed && { opacity: 0.7 }]}>
+        <Ionicons name="stats-chart" size={16} color={colors.primary} />
+        <Text style={styles.pnlText}>Profit & loss, movers, export</Text>
+        <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+      </Pressable>
     </View>
   );
 }
@@ -104,7 +114,8 @@ function Stat({ label, value, color }: { label: string; value: string; color?: s
 
 const CardTile = memo(function CardTile({ card }: { card: Card }) {
   const thumb = imageSource(card.frontImageUrl);
-  const price = card.status === 'SOLD' ? card.soldPrice : card.status === 'LISTED' ? card.listedPrice : card.suggestedPrice;
+  const price =
+    card.status === 'SOLD' ? card.soldPrice : card.status === 'LISTED' ? card.listedPrice : (card.marketPrice ?? card.suggestedPrice);
   const name = card.player ?? card.ebayTitle;
   const meta = [card.year, card.set ?? card.manufacturer].filter(Boolean).join(' ');
 
@@ -164,6 +175,16 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
   },
+  pnlLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    marginTop: space.md,
+    paddingTop: space.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  pnlText: { flex: 1, color: colors.primary, fontFamily: fonts.bodySemiBold, fontSize: 14 },
   statLabel: { fontSize: 12, fontFamily: fonts.bodyMedium, color: colors.textMuted },
   statValue: { fontSize: 18, fontFamily: fonts.displayMedium, color: colors.text },
   tile: {

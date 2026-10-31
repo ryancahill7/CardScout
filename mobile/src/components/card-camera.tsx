@@ -16,15 +16,20 @@ export interface CapturedPhoto {
   height: number;
 }
 
+// card: guided front-then-back scan. quick: one front photo (show mode). lot: several cards in one wide shot.
+export type CameraMode = 'card' | 'quick' | 'lot';
+
 // Full-screen guided capture for one side of a card, with a photo-library fallback.
 export function CardCamera({
   side,
   onCaptured,
   onCancel,
+  mode = 'card',
 }: {
   side: 'front' | 'back';
   onCaptured: (photo: CapturedPhoto) => void;
   onCancel?: () => void;
+  mode?: CameraMode;
 }) {
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
@@ -102,13 +107,19 @@ export function CardCamera({
 
       <View style={[styles.topBar, { paddingTop: insets.top + space.sm }]}>
         <View style={styles.steps}>
-          {(['front', 'back'] as const).map((s, i) => (
-            <View key={s} style={[styles.step, s === side && styles.stepActive]}>
-              <Text style={[styles.stepText, s === side && { color: colors.onPrimary }]}>
-                {i + 1} · {s === 'front' ? 'Front' : 'Back'}
-              </Text>
+          {mode === 'card' ? (
+            (['front', 'back'] as const).map((s, i) => (
+              <View key={s} style={[styles.step, s === side && styles.stepActive]}>
+                <Text style={[styles.stepText, s === side && { color: colors.onPrimary }]}>
+                  {i + 1} · {s === 'front' ? 'Front' : 'Back'}
+                </Text>
+              </View>
+            ))
+          ) : (
+            <View style={[styles.step, styles.stepActive]}>
+              <Text style={[styles.stepText, { color: colors.onPrimary }]}>{mode === 'lot' ? 'Lot photo' : 'Quick scan · front'}</Text>
             </View>
-          ))}
+          )}
         </View>
         {onCancel && (
           <Pressable
@@ -123,14 +134,18 @@ export function CardCamera({
       </View>
 
       <View style={styles.overlay} pointerEvents="none">
-        <View style={styles.guide}>
+        <View style={mode === 'lot' ? styles.lotGuide : styles.guide}>
           <Corner style={{ top: 0, left: 0 }} />
           <Corner style={{ top: 0, right: 0, transform: [{ rotate: '90deg' }] }} />
           <Corner style={{ bottom: 0, right: 0, transform: [{ rotate: '180deg' }] }} />
           <Corner style={{ bottom: 0, left: 0, transform: [{ rotate: '270deg' }] }} />
         </View>
-        <Text style={styles.instructions}>Line up the {side} of the card</Text>
-        <Text style={styles.subInstructions}>Fill the frame · avoid glare · keep it flat</Text>
+        <Text style={styles.instructions}>
+          {mode === 'lot' ? 'Fit every card in the frame' : `Line up the ${side} of the card`}
+        </Text>
+        <Text style={styles.subInstructions}>
+          {mode === 'lot' ? 'Fronts up · no overlap · avoid glare' : 'Fill the frame · avoid glare · keep it flat'}
+        </Text>
       </View>
 
       <View style={[styles.controls, { paddingBottom: Math.max(insets.bottom, space.lg) + space.sm }]}>
@@ -202,6 +217,7 @@ const styles = StyleSheet.create({
   // Standard trading card ratio is 2.5" x 3.5". Sized from the height left between the top
   // bar and the controls (width follows from the ratio) so it fits on any screen shape.
   guide: { height: '72%', aspectRatio: 2.5 / 3.5, marginBottom: space.md },
+  lotGuide: { width: '92%', aspectRatio: 3 / 4, marginBottom: space.md },
   corner: {
     position: 'absolute',
     width: 36,

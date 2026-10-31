@@ -112,7 +112,19 @@ public class CompsClient
             CibPrice = ReadPrice("cib-price"),
             ManualOnlyPrice = ReadPrice("manual-only-price"),
             BoxOnlyPrice = ReadPrice("box-only-price"),
-            Bgs10Price = ReadPrice("bgs-10-price")
+            Bgs10Price = ReadPrice("bgs-10-price"),
+            // Not in the API docs; mapped by matching a known card's per-grade sales
+            Grade1Price = ReadPrice("condition-9-price"),
+            Grade2Price = ReadPrice("condition-10-price"),
+            Grade3Price = ReadPrice("condition-13-price"),
+            Grade4Price = ReadPrice("condition-14-price"),
+            Grade5Price = ReadPrice("condition-15-price"),
+            Grade6Price = ReadPrice("condition-16-price"),
+            Cgc10Price = ReadPrice("condition-17-price"),
+            Sgc10Price = ReadPrice("condition-18-price"),
+            SalesVolume = doc.RootElement.TryGetProperty("sales-volume", out var sv) && sv.ValueKind == JsonValueKind.Number
+                ? sv.GetInt32()
+                : sv.ValueKind == JsonValueKind.String && int.TryParse(sv.GetString(), out var svInt) ? svInt : null
         };
     }
 }

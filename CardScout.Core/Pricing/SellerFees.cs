@@ -10,4 +10,20 @@ public static class SellerFees
 
     public static decimal NetProceeds(decimal salePrice) =>
         salePrice * (1 - EbayFeeRate) - EbayPerOrderFee - PackagingMaterialsCost;
+
+    // The sale price that nets exactly `net` (inverse of NetProceeds); used for break-even floors
+    public static decimal SalePriceForNet(decimal net) =>
+        (net + EbayPerOrderFee + PackagingMaterialsCost) / (1 - EbayFeeRate);
+
+    // What a seller usually charges to ship a card to us, until eBay tells us the real cost
+    public static decimal EstimateBuyShipping(decimal price)
+    {
+        return price switch
+        {
+            < 10m => 1.30m,   // plain tracked envelope (USPS Ground Advantage letter-ish rate)
+            < 30m => 3.50m,   // small bubble mailer
+            < 100m => 5.00m,  // padded mailer, toploader, team bag
+            _ => 7.50m         // higher-value item, more careful packaging
+        };
+    }
 }

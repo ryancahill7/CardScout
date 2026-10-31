@@ -2,11 +2,9 @@ import { Stack } from 'expo-router';
 
 import { colors, fonts } from '@/lib/theme';
 
-// The list is always the bottom of this stack, so opening a card from another tab
-// (e.g. "View card" after a scan) still has a back arrow to the collection
 export const unstable_settings = { anchor: 'index' };
 
-export default function InventoryLayout() {
+export default function ShowLayout() {
   return (
     <Stack
       screenOptions={{
@@ -16,8 +14,8 @@ export default function InventoryLayout() {
         headerTitleStyle: { fontFamily: fonts.bodySemiBold, color: colors.text },
         contentStyle: { backgroundColor: colors.background },
       }}>
-      <Stack.Screen name="index" options={{ headerShown: false, title: 'Collection' }} />
-      <Stack.Screen name="[id]" options={{ title: '' }} />
+      <Stack.Screen name="index" options={{ headerShown: false, title: 'Show' }} />
+      <Stack.Screen name="lot" options={{ title: 'Lot analyzer' }} />
     </Stack>
   );
 }

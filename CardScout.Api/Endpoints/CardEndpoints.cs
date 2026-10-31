@@ -3,8 +3,10 @@ using System.Text.Json.Nodes;
 using Anthropic.Exceptions;
 using CardScout.Core.Comps;
 using CardScout.Core.Data;
+using CardScout.Core.Flip;
 using CardScout.Core.Identify;
 using CardScout.Core.Images;
+using CardScout.Core.Listing;
 using CardScout.Core.Models;
 using CardScout.Core.Pricing;
 
@@ -13,7 +15,7 @@ namespace CardScout.Api.Endpoints;
 public static class CardEndpoints
 {
     // Image types the Anthropic API accepts
-    private static readonly Dictionary<string, string> AllowedImageTypes = new(StringComparer.OrdinalIgnoreCase)
+    internal static readonly Dictionary<string, string> AllowedImageTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         ["image/jpeg"] = ".jpg",
         ["image/png"] = ".png",
@@ -34,6 +36,9 @@ public static class CardEndpoints
         cards.MapGet("/{id:long}", GetAsync);
         cards.MapPatch("/{id:long}", PatchAsync);
         cards.MapGet("/{id:long}/images/{side}", GetImageAsync);
+        cards.MapPost("/market", MarketAsync);
+        cards.MapGet("/{id:long}/listing-kit", ListingKitAsync);
+        cards.MapGet("/{id:long}/history", HistoryAsync);
     }
 
     private static async Task<IResult> IdentifyAsync(
@@ -41,11 +46,12 @@ public static class CardEndpoints
         CardIdentifier identifier, CardPricingService pricing, IImageStorage images,
         ILogger<CardIdentifier> logger, CancellationToken ct)
     {
-        var error = ValidateImage(front, "front") ?? ValidateImage(back, "back");
+        // The back is optional: show mode scans the front only, for speed
+        var error = ValidateImage(front, "front") ?? (back == null ? null : ValidateImage(back, "back"));
         if (error != null) return Results.BadRequest(new { error });
 
         var frontImage = await ReadImageAsync(front!, ct);
-        var backImage = await ReadImageAsync(back!, ct);
+        var backImage = back == null ? null : await ReadImageAsync(back, ct);
 
         CardIdentifyResult result;
         try
@@ -64,6 +70,10 @@ public static class CardEndpoints
                 statusCode: StatusCodes.Status502BadGateway);
         }
 
+        if (result.Usage != null)
+            logger.LogInformation("Scan by user {UserId}: {Model} {InputTokens} in / {OutputTokens} out tokens ({Sides})",
+                user.UserId, result.Usage.Model, result.Usage.InputTokens, result.Usage.OutputTokens, back == null ? "front only" : "front+back");
+
         // Pricing is best-effort: a SportsCardsPro outage shouldn't lose the identification
         var price = CardPriceQuote.None;
         string? priceError = null;
@@ -80,7 +90,9 @@ public static class CardEndpoints
         // Saved now so the client doesn't have to re-upload on save. Images from scans
         // that are never saved stay on disk; clean them up if that becomes a problem.
         var frontPath = await images.SaveAsync(new MemoryStream(frontImage.Data), AllowedImageTypes[frontImage.MediaType], user.ImageFolder);
-        var backPath = await images.SaveAsync(new MemoryStream(backImage.Data), AllowedImageTypes[backImage.MediaType], user.ImageFolder);
+        var backPath = backImage == null
+            ? null
+            : await images.SaveAsync(new MemoryStream(backImage.Data), AllowedImageTypes[backImage.MediaType], user.ImageFolder);
 
         return Results.Ok(new IdentifyResponse(result.Card, price, priceError, frontPath, backPath, result.RawJson));
     }
@@ -152,7 +164,11 @@ public static class CardEndpoints
             SoldAt = status == CardStatus.Sold ? DateTime.Now : null,
             FrontImagePath = request.FrontImagePath,
             BackImagePath = request.BackImagePath,
-            AiRawJson = request.AiRawJson
+            AiRawJson = request.AiRawJson,
+            PurchaseSource = request.PurchaseSource?.Trim(),
+            PurchasedAt = request.PurchasedAt,
+            GradingCost = request.GradingCost,
+            CertNumber = request.CertNumber?.Trim()
         };
 
         var id = await repo.InsertAsync(item);
@@ -211,6 +227,11 @@ public static class CardEndpoints
                     case "listedPrice": item.ListedPrice = value?.GetValue<decimal?>(); break;
                     case "soldPrice": item.SoldPrice = value?.GetValue<decimal?>(); break;
                     case "soldAt": item.SoldAt = value?.GetValue<DateTime?>(); break;
+                    case "purchaseSource": item.PurchaseSource = Str(value); break;
+                    case "purchasedAt": item.PurchasedAt = value?.GetValue<DateTime?>(); break;
+                    case "certNumber": item.CertNumber = Str(value); break;
+                    case "gradingCost": item.GradingCost = value?.GetValue<decimal?>(); break;
+                    case "saleShippingCost": item.SaleShippingCost = value?.GetValue<decimal?>(); break;
                     case "ebayTitle":
                         var title = Str(value)?.Trim() ?? "";
                         if (title.Length == 0 || title.Length > 80)
@@ -261,7 +282,38 @@ public static class CardEndpoints
         return Results.Stream(stream, contentType);
     }
 
-    private static string? ValidateImage(IFormFile? file, string name)
+    // What the card is listed for on eBay right now (asking prices, not sales)
+    private static async Task<IResult> MarketAsync(
+        PriceQuoteRequest request, MarketSnapshotService market, ILogger<MarketSnapshotService> logger)
+    {
+        try
+        {
+            return Results.Ok(await market.GetAsync(request.ToIdentification()));
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogWarning(ex, "eBay market lookup failed for {Player} {Year} {Set}", request.Player, request.Year, request.Set);
+            return Results.Json(new { error = "eBay didn't respond. Try again in a moment." }, statusCode: StatusCodes.Status502BadGateway);
+        }
+    }
+
+    // Title, item specifics, description and a price strategy for listing the card on eBay
+    private static async Task<IResult> ListingKitAsync(long id, CurrentUser user, CardInventoryRepository repo)
+    {
+        var item = await repo.GetByIdAsync(user.UserId, id);
+        if (item == null) return Results.NotFound();
+        return Results.Ok(ListingKitBuilder.Build(item, item.MarketPrice ?? item.SuggestedPrice));
+    }
+
+    private static async Task<IResult> HistoryAsync(long id, int? days, CurrentUser user, CardInventoryRepository repo, PriceHistoryRepository history)
+    {
+        var item = await repo.GetByIdAsync(user.UserId, id);
+        if (item == null) return Results.NotFound();
+        var points = await history.GetForCardAsync(user.UserId, id, Math.Clamp(days ?? 180, 1, 730));
+        return Results.Ok(points.Select(p => new { p.Price, p.CapturedAt }));
+    }
+
+    internal static string? ValidateImage(IFormFile? file, string name)
     {
         if (file == null || file.Length == 0) return $"The '{name}' image is required.";
         if (!AllowedImageTypes.ContainsKey(file.ContentType))
@@ -270,7 +322,7 @@ public static class CardEndpoints
         return null;
     }
 
-    private static async Task<CardImage> ReadImageAsync(IFormFile file, CancellationToken ct)
+    internal static async Task<CardImage> ReadImageAsync(IFormFile file, CancellationToken ct)
     {
         using var ms = new MemoryStream();
         await file.CopyToAsync(ms, ct);

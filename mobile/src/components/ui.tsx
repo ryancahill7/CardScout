@@ -4,6 +4,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { ComponentProps, ReactNode, useState } from 'react';
 import {
   ActivityIndicator,
+  InputAccessoryView,
+  Keyboard,
+  Platform,
   Pressable,
   StyleProp,
   StyleSheet,
@@ -128,6 +131,23 @@ export function Loading({ label }: { label?: string }) {
   );
 }
 
+// iOS number pads have no return key, so every field gets this "Done" bar above the keyboard.
+// One instance is rendered in the root layout; inputs opt in with inputAccessoryViewID.
+export const KEYBOARD_DONE_ID = 'cardscout-keyboard-done';
+
+export function KeyboardDoneBar() {
+  if (Platform.OS !== 'ios') return null;
+  return (
+    <InputAccessoryView nativeID={KEYBOARD_DONE_ID}>
+      <View style={styles.doneBar}>
+        <Pressable onPress={Keyboard.dismiss} hitSlop={10} accessibilityRole="button" accessibilityLabel="Close keyboard">
+          <Text style={styles.doneText}>Done</Text>
+        </Pressable>
+      </View>
+    </InputAccessoryView>
+  );
+}
+
 export function Field({ label, hint, ...props }: TextInputProps & { label: string; hint?: string }) {
   const [focused, setFocused] = useState(false);
   return (
@@ -138,6 +158,7 @@ export function Field({ label, hint, ...props }: TextInputProps & { label: strin
         selectionColor={colors.primary}
         keyboardAppearance="dark"
         accessibilityLabel={label}
+        inputAccessoryViewID={KEYBOARD_DONE_ID}
         {...props}
         onFocus={(e) => {
           setFocused(true);
@@ -264,6 +285,16 @@ export function ScreenTitle({ title, subtitle, right }: { title: string; subtitl
 }
 
 export const styles = StyleSheet.create({
+  doneBar: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: colors.surfaceRaised,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  doneText: { color: colors.primary, fontFamily: fonts.bodyBold, fontSize: 16 },
   button: {
     minHeight: 54,
     borderRadius: radius.lg,

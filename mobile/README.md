@@ -2,9 +2,10 @@
 
 Expo (SDK 58) app for photographing cards, identifying them with Claude, and tracking them in your CardScout inventory. It runs in **Expo Go** on iPhone. There's no custom native code, so EAS cloud builds work later without a Mac.
 
-- **Scan:** front photo, then back photo (tap either to retake), then **Identify & price**. You get the market value for the card's grade, the full grade ladder (tap a tier to use that price), net after eBay fees, and profit against your cost. If you fix a field, tap **Re-price**. If the match is wrong, use **Wrong card?** to pick another comp. Then **Add to collection**.
-- **Collection:** portfolio summary (market value, cost, realized profit) and a card grid with a status filter. Opening a card fetches a live price for its saved comp.
-- **Deals:** placeholder for phase 2 (underpriced eBay listings and push alerts).
+- **Scan:** front photo, then back photo (tap either to retake), then **Identify & price**. You get the market value for the card's grade, the full grade ladder (tap a tier to use that price), net after eBay fees, and profit against your cost. If you fix a field, tap **Re-price**. If the match is wrong, use **Wrong card?** to pick another comp. **Buying it?** takes an asking price and gives a buy/fair/pass verdict, **Grade it?** shows grading ROI per service (from Claude's read of centering/corners, or a preset), and **On eBay now** lists the cheapest active listings. Then **Add to collection**.
+- **Show:** card-show mode. Snap just the front of a card; it's identified and priced in the background while you keep scanning. Set what share of sold comps you pay in cash (e.g. 80%, with − / + buttons) and whether you resell in person (no fees) or on eBay. Type the dealer's asking price for a verdict (Steal / Buy / Fair / Pass), your max price, profit and an opening offer. **Sold comps** shows what the card sells for at its grade and the grades around it, with links to eBay's sold listings, the sales history and, for slabs, the grader's cert lookup. **Bought it** adds the card to your collection with its cost and source. **Lot** prices every card in one photo (a lot, binder page or display case) against the lot's asking price.
+- **Deals:** **My alerts** are listings your watchlists found that would flip for your target after fees and shipping (with max bid for auctions), **Saved** keeps the ones you're tracking, and **Market** is the shared deal finder (`WATCHED_PLAYERS`). Manage watchlists (list icon). Settings (gear icon, also on Show) opens as a sheet over the current screen: profit target, grading fees, push alerts. The tab shows a badge for new alerts.
+- **Collection:** portfolio summary and card grid. A card shows its live price, market trend, grading ROI, eBay listings, and P&L fields (grading cost, shipping you paid, where you bought it). **List on eBay** builds a listing kit (title, item specifics, description, Buy It Now / Best Offer pricing with break-even) to copy into eBay. **Profit & loss** has realized and unrealized profit, a 12-month chart, this week's movers and a CSV export.
 
 The app talks to `CardScout.Api` (in the repo root). All commands below are **Windows PowerShell**.
 
@@ -111,12 +112,16 @@ npx expo-doctor       # dependency/config check
 
 ```
 src/app/                Expo Router screens
-  _layout.tsx           tabs + React Query provider
-  index.tsx             Scan tab
-  inventory/            Inventory tab (list + [id] detail, in a stack)
-  deals.tsx             Deals placeholder
-src/components/         camera, card form, UI primitives
-src/lib/                API client, config, image resize, theme
+  _layout.tsx           root stack: providers, fonts, notification taps, keyboard Done bar
+  settings.tsx          Settings, a modal over any tab
+  (tabs)/_layout.tsx    tab bar + Deals alert badge
+  (tabs)/index.tsx      Scan tab
+  (tabs)/show/          Show tab (quick scan list + lot analyzer)
+  (tabs)/deals/         Deals tab (alerts/saved/market, watchlists, watchlist/[id])
+  (tabs)/inventory/     Collection tab (list, [id] detail, pnl, listing/[id] kit)
+src/components/         camera, card form, price/verdict/grading/market panels, UI primitives
+src/lib/                API client, flip + grading math (flip.ts mirrors Core/Flip/FlipAnalyzer.cs),
+                        settings (saved to a JSON file), push notifications, image resize, theme
 ```
 
 ## Going multi-user (when the app goes live)
@@ -129,6 +134,16 @@ The data model is already per-user: `CARD_USERS` holds the users, `CARD_INVENTOR
 4. Host the API over HTTPS, and move images to blob storage with a new `IImageStorage` implementation.
 5. Add per-user rate limits on `/api/cards/identify`, since each call costs Anthropic credits.
 
-## Phase 2 notes
+## Push alerts
 
-Push notifications need an **EAS development build**, because Expo Go doesn't support remote push. You can build that in the cloud from Windows with `npx eas-cli@latest build --profile development --platform ios`.
+Watchlist alerts and "your card moved" alerts are sent by the worker (`dotnet run --project CardScout`) through Expo's push service. To turn them on:
+
+1. Run `npx eas-cli@latest init` in `mobile/` once. It creates the EAS project and adds `extra.eas.projectId` to `app.json`; push tokens need it.
+2. Restart Expo, open **Settings** (gear icon on the Deals tab), tap **Turn on & send a test alert** and allow notifications.
+
+On Android, Expo Go can't receive remote push, so you need a development build (`npx eas-cli@latest build --profile development --platform android`). If push isn't set up, alerts still show in the Deals tab, and the tab badge counts new ones.
+
+## Not built yet
+
+- Posting listings straight to eBay. That needs the eBay Sell API with per-user OAuth consent. For now the listing kit gives you every field to copy, and opens eBay's listing page.
+- Sold-price history. The eBay Browse API only returns active listings, so "On eBay now" shows asking prices. Comps come from SportsCardsPro, which is based on sales.

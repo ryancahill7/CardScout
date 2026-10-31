@@ -1,4 +1,4 @@
-using System.Data;
+﻿using System.Data;
 using System.Security.Cryptography;
 using System.Text;
 using Dapper;
@@ -45,5 +45,14 @@ public class CardUsersRepository
         parameters.Add("NewId", dbType: DbType.Int64, direction: ParameterDirection.Output);
         await conn.ExecuteAsync(sql, parameters);
         return parameters.Get<long>("NewId");
+    }
+
+    // For background workers, which then make user-scoped calls per user
+    public async Task<List<long>> GetActiveIdsAsync()
+    {
+        using var conn = new OracleConnection(_connString);
+        await conn.OpenAsync();
+        var ids = await conn.QueryAsync<long>("SELECT ID FROM CARD_USERS WHERE IS_ACTIVE = 'Y' ORDER BY ID");
+        return ids.ToList();
     }
 }
