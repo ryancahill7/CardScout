@@ -13,6 +13,7 @@ public class CardPricingService
 {
     private const double MinConfidence = 0.55;
     private const int MaxAlternatives = 6;
+    private const double StrongTcgMatch = 0.8;
     private static readonly TimeSpan CacheMaxAge = TimeSpan.FromDays(3);
 
     private readonly CompCacheRepository _compCacheRepo;
@@ -28,6 +29,8 @@ public class CardPricingService
     // alternative); otherwise the best-scoring search result is used.
     public async Task<CardPriceQuote> QuoteAsync(CardIdentification card, string? productId = null)
     {
+        if (TcgMatcher.IsTcg(card)) return await QuoteTcgAsync(card, productId);
+
         var parsed = TitleCleaner.Parse(BuildSearchTitle(card, includeParallel: true));
         var grade = card.GradingCompany != null && card.Grade != null
             ? (card.GradingCompany.Trim().ToUpperInvariant(), card.Grade.Value)
@@ -64,6 +67,51 @@ public class CardPricingService
             return CardPriceQuote.None with { Alternatives = scored };
 
         var comp = await GetProductAsync(parsed.CleanedForSearch, best.ProductId);
+        return comp == null
+            ? CardPriceQuote.None with { Alternatives = scored }
+            : BuildQuote(comp, grade, best.Score, false, scored);
+    }
+
+    // Pokemon, Magic, Yu-Gi-Oh! etc. SportsCardsPro carries them with the same grade tiers as
+    // sports cards; only the search and scoring differ (name + set + collector number + variant).
+    private async Task<CardPriceQuote> QuoteTcgAsync(CardIdentification card, string? productId)
+    {
+        var query = TcgMatcher.FromCard(card);
+        var grade = query.Grade;
+
+        if (!string.IsNullOrWhiteSpace(productId))
+        {
+            var picked = await GetProductAsync($"product:{productId}", productId);
+            return picked == null ? CardPriceQuote.None : BuildQuote(picked, grade, null, true, []);
+        }
+
+        // Most specific search first. PriceCharting returns at most ~10 results for a narrow
+        // query, so when nothing scores well the next, looser query is tried too (each one is
+        // another throttled call, so stop as soon as there's a confident match).
+        var all = new Dictionary<string, CompAlternative>();
+        string? usedQuery = null;
+        foreach (var q in TcgMatcher.SearchQueries(query).Take(3))
+        {
+            var found = await _compsClient.SearchAsync(q, tradingCardGames: true);
+            foreach (var c in found)
+                all.TryAdd(c.Id, new CompAlternative(c.Id, c.ProductName, c.ConsoleName,
+                    Math.Round(TcgMatcher.Score(query, c.ProductName, c.ConsoleName), 3)));
+            if (found.Count > 0) usedQuery ??= q;
+            if (all.Count > 0 && all.Values.Max(c => c.Score) >= StrongTcgMatch) break;
+        }
+        if (all.Count == 0 || usedQuery == null) return CardPriceQuote.None;
+
+        var scored = all.Values
+            .OrderByDescending(c => c.Score)
+            .Take(MaxAlternatives)
+            .ToList();
+
+        var best = scored[0];
+        if (best.Score < MinConfidence)
+            return CardPriceQuote.None with { Alternatives = scored };
+
+        // "tcg|" keeps these cache rows apart from sports title queries
+        var comp = await GetProductAsync($"tcg|{usedQuery}", best.ProductId);
         return comp == null
             ? CardPriceQuote.None with { Alternatives = scored }
             : BuildQuote(comp, grade, best.Score, false, scored);

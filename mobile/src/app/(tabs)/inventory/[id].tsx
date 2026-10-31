@@ -14,6 +14,7 @@ import { PricePanel } from '@/components/price-panel';
 import { SoldCompsPanel } from '@/components/sold-comps-panel';
 import { Sparkline } from '@/components/sparkline';
 import { Button, ErrorBanner, Field, HoloFrame, Loading, SectionTitle, StatusPicker, StatusPill, Surface } from '@/components/ui';
+import { cardMeta } from '@/lib/card-meta';
 import { Card, CardStatus, getCard, getCardHistory, imageSource, quoteRequestFrom, updateCard } from '@/lib/api';
 import { formatMoney, formatSignedMoney, netProceeds } from '@/lib/money';
 import { colors, fonts, radius, space } from '@/lib/theme';
@@ -152,9 +153,12 @@ export default function CardDetailScreen() {
   const parsedFields = fromFormValues(form);
   const marketRequest = parsedFields.ok ? quoteRequestFrom(parsedFields.fields) : null;
   const trend = history.data?.map((p) => p.price) ?? [];
-  const subtitle = [form.year, form.manufacturer, form.set, form.cardNumber && `#${form.cardNumber}`]
-    .filter(Boolean)
-    .join(' · ');
+  const subtitle =
+    form.category === 'tcg'
+      ? cardMeta(form)
+      : [form.year, form.manufacturer, form.set, form.cardNumber && `#${form.cardNumber}`].filter(Boolean).join(' · ');
+  // TCG cards usually have no back photo (every back in a game is the same)
+  const canFlip = !!images.back;
 
   return (
     <KeyboardAvoidingView
@@ -163,6 +167,7 @@ export default function CardDetailScreen() {
       keyboardVerticalOffset={100}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
         <Pressable
+          disabled={!canFlip}
           onPress={() => {
             void Haptics.selectionAsync();
             setSide(side === 'front' ? 'back' : 'front');
@@ -179,10 +184,12 @@ export default function CardDetailScreen() {
               )}
             </Animated.View>
           </HoloFrame>
-          <View style={styles.flipHint}>
-            <Ionicons name="sync" size={13} color={colors.textSecondary} />
-            <Text style={styles.flipText}>{side === 'front' ? 'Front' : 'Back'} · tap to flip</Text>
-          </View>
+          {canFlip && (
+            <View style={styles.flipHint}>
+              <Ionicons name="sync" size={13} color={colors.textSecondary} />
+              <Text style={styles.flipText}>{side === 'front' ? 'Front' : 'Back'} · tap to flip</Text>
+            </View>
+          )}
         </Pressable>
 
         <View style={{ gap: space.sm }}>

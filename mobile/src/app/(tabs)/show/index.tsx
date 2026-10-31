@@ -19,6 +19,7 @@ import { analyzeShowBuy, verdictStyle } from '@/lib/flip';
 import { prepareForUpload } from '@/lib/images';
 import { formatMoney, formatSignedMoney, netProceeds } from '@/lib/money';
 import { updateSettings, useSettings } from '@/lib/settings';
+import { cardMetaParts } from '@/lib/card-meta';
 import { colors, fonts, radius, space } from '@/lib/theme';
 
 interface ShowItem {
@@ -115,6 +116,11 @@ export default function ShowScreen() {
           aiRawJson: r.aiRawJson,
           purchaseSource: 'Card show',
           purchasedAt: new Date().toISOString(),
+          category: r.card.category === 'tcg' ? 'tcg' : 'sports',
+          game: r.card.game ?? null,
+          setCode: r.card.setCode ?? null,
+          rarity: r.card.rarity ?? null,
+          language: r.card.language ?? null,
         });
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         queryClient.invalidateQueries({ queryKey: ['cards'] });
@@ -307,7 +313,7 @@ const ShowItemCard = memo(function ShowItemCard({
 
   const title = r ? (r.card.player ?? r.card.suggestedEbayTitle) : item.status === 'error' ? "Couldn't identify" : 'Identifying…';
   const meta = r
-    ? [r.card.year, r.card.manufacturer, r.card.set, r.card.parallel, r.card.cardNumber && `#${r.card.cardNumber}`,
+    ? [...cardMetaParts(r.card),
         r.card.gradingCompany && r.card.grade && `${r.card.gradingCompany} ${r.card.grade}`,
         r.card.certNumber && `cert ${r.card.certNumber}`]
         .filter(Boolean)

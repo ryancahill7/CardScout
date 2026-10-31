@@ -1,4 +1,5 @@
 ﻿using CardScout.Core.Flip;
+using CardScout.Core.Matching;
 using CardScout.Core.Models;
 
 namespace CardScout.Api;
@@ -24,11 +25,19 @@ public record PriceQuoteRequest(
     bool IsAutograph,
     string? GradingCompany,
     decimal? Grade,
-    string? CompProductId)
+    string? CompProductId,
+    // TCG fields; category null = sports
+    string? Category = null,
+    string? Game = null,
+    string? SetCode = null,
+    string? Rarity = null,
+    string? Language = null)
 {
     public CardIdentification ToIdentification() => new(
         Player, Year, Manufacturer, Set, CardNumber, Parallel, null,
-        false, IsAutograph, false, GradingCompany, Grade, null, 0, "");
+        false, IsAutograph, false, GradingCompany, Grade, null, 0, "",
+        Category: TcgMatcher.NormalizeCategory(Category), Game: TcgMatcher.NormalizeGame(Game),
+        SetCode: SetCode, Rarity: Rarity, Language: Language);
 }
 
 public record CreateCardRequest(
@@ -57,7 +66,12 @@ public record CreateCardRequest(
     string? PurchaseSource = null,
     DateTime? PurchasedAt = null,
     decimal? GradingCost = null,
-    string? CertNumber = null);
+    string? CertNumber = null,
+    string? Category = null,
+    string? Game = null,
+    string? SetCode = null,
+    string? Rarity = null,
+    string? Language = null);
 
 public record CardDto(
     long Id,
@@ -92,6 +106,12 @@ public record CardDto(
     decimal? MarketPrice,
     DateTime? MarketPriceAt,
     string? CertNumber,
+    // "sports" or "tcg"; the rest are TCG-only
+    string Category,
+    string? Game,
+    string? SetCode,
+    string? Rarity,
+    string? Language,
     DateTime CreatedAt,
     DateTime UpdatedAt)
 {
@@ -103,7 +123,8 @@ public record CardDto(
         c.FrontImagePath == null ? null : $"/api/cards/{c.Id}/images/front",
         c.BackImagePath == null ? null : $"/api/cards/{c.Id}/images/back",
         c.PurchaseSource, c.PurchasedAt, c.GradingCost, c.SaleShippingCost, c.MarketPrice, c.MarketPriceAt,
-        c.CertNumber, c.CreatedAt, c.UpdatedAt);
+        c.CertNumber, TcgMatcher.NormalizeCategory(c.Category), c.Game, c.SetCode, c.Rarity, c.CardLanguage,
+        c.CreatedAt, c.UpdatedAt);
 }
 
 // ---- Lots ----
@@ -129,15 +150,19 @@ public record WatchlistRequest(
     decimal? MinProfitPct,
     bool GradedOnly,
     bool Notify = true,
-    bool IsActive = true);
+    bool IsActive = true,
+    // "sports" (default) or "tcg"; game is an optional TCG hint (pokemon, mtg, yugioh, one-piece, lorcana)
+    string? Category = null,
+    string? Game = null);
 
 public record WatchlistDto(
     long Id, string Name, string Query, string ListingType, decimal? MaxPrice, decimal MinProfit, decimal MinProfitPct,
-    bool GradedOnly, bool Notify, bool IsActive, DateTime? LastRunAt, DateTime CreatedAt)
+    bool GradedOnly, bool Notify, bool IsActive, DateTime? LastRunAt, DateTime CreatedAt, string Category, string? Game)
 {
     public static WatchlistDto From(Watchlist w) => new(
         w.Id, w.Name, w.Query, w.ListingType, w.MaxPrice, w.MinProfit, w.MinProfitPct,
-        w.GradedOnly == "Y", w.Notify == "Y", w.IsActive == "Y", w.LastRunAt, w.CreatedAt);
+        w.GradedOnly == "Y", w.Notify == "Y", w.IsActive == "Y", w.LastRunAt, w.CreatedAt,
+        TcgMatcher.NormalizeCategory(w.Category), w.Game);
 }
 
 public record WatchlistHitDto(

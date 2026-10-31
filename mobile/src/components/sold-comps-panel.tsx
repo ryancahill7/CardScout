@@ -23,28 +23,54 @@ export interface SoldCompsCard {
   gradingCompany: string | null;
   grade: number | null;
   certNumber?: string | null;
+  category?: string | null;
+  game?: string | null;
+  language?: string | null;
 }
+
+const GAME_WORDS: Record<string, string> = {
+  pokemon: 'Pokemon',
+  mtg: 'MTG',
+  yugioh: 'Yugioh',
+  'one-piece': 'One Piece',
+  lorcana: 'Lorcana',
+};
 
 type Source = 'ebay' | 'scp';
 
 // eBay's own sold-listings search for the card, newest sales first
 export function ebaySoldUrl(card: SoldCompsCard) {
-  const q = [
-    card.year,
-    card.manufacturer,
-    card.set,
-    card.player,
-    card.parallel,
-    card.cardNumber && `#${card.cardNumber}`,
-    card.isAutograph && 'auto',
-    card.gradingCompany && card.grade != null && `${card.gradingCompany} ${card.grade}`,
-  ]
-    .filter(Boolean)
-    .join(' ');
+  const english = !card.language || /^en(glish)?$/i.test(card.language.trim());
+  const parts =
+    card.category === 'tcg'
+      ? // TCG sellers title singles as name + collector number ("Charizard 4/102")
+        [
+          card.game && GAME_WORDS[card.game],
+          card.player,
+          card.cardNumber ?? card.set,
+          card.parallel,
+          !english && card.language,
+          card.gradingCompany && card.grade != null && `${card.gradingCompany} ${card.grade}`,
+        ]
+      : [
+          card.year,
+          card.manufacturer,
+          card.set,
+          card.player,
+          card.parallel,
+          card.cardNumber && `#${card.cardNumber}`,
+          card.isAutograph && 'auto',
+          card.gradingCompany && card.grade != null && `${card.gradingCompany} ${card.grade}`,
+        ];
+  const q = parts.filter(Boolean).join(' ');
   return `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}&LH_Sold=1&LH_Complete=1&_sop=13&rt=nc`;
 }
 
-// SportsCardsPro product page (it lists the individual sales behind each grade's price).
+// Sports comps come from SportsCardsPro ("Baseball Cards 2011 Topps Update"); Pokemon, Magic and
+// other TCGs from its sister site PriceCharting ("Pokemon Base Set"). Same URL scheme on both.
+export const isSportsComp = (setName: string | null | undefined) => !setName || /^[A-Za-z]+ Cards\b/.test(setName);
+
+// SportsCardsPro / PriceCharting product page (it lists the individual sales behind each grade's price).
 // URLs are /game/<set slug>/<card slug>; falls back to the search page if names are missing.
 function sportsCardsProUrl(quote: PriceQuote) {
   const slug = (s: string) =>
@@ -54,8 +80,9 @@ function sportsCardsProUrl(quote: PriceQuote) {
       .replace(/&/g, 'and')
       .trim()
       .replace(/\s+/g, '-');
+  const host = isSportsComp(quote.compSetName) ? 'www.sportscardspro.com' : 'www.pricecharting.com';
   if (quote.compProductName && quote.compSetName)
-    return `https://www.sportscardspro.com/game/${slug(quote.compSetName)}/${slug(quote.compProductName)}`;
+    return `https://${host}/game/${slug(quote.compSetName)}/${slug(quote.compProductName)}`;
   return quote.compUrl;
 }
 
@@ -136,7 +163,7 @@ export function SoldCompsPanel({ quote, card }: { quote: PriceQuote; card: SoldC
 
       <View style={styles.links}>
         <LinkButton icon="open-outline" label="eBay sold" onPress={() => WebBrowser.openBrowserAsync(urls.ebay!)} />
-        {scpUrl && <LinkButton icon="open-outline" label="SportsCardsPro" onPress={() => WebBrowser.openBrowserAsync(scpUrl)} />}
+        {scpUrl && <LinkButton icon="open-outline" label={isSportsComp(quote.compSetName) ? 'SportsCardsPro' : 'PriceCharting'} onPress={() => WebBrowser.openBrowserAsync(scpUrl)} />}
         {verify && (
           <LinkButton icon="shield-checkmark-outline" label={`Verify ${card.gradingCompany}`} onPress={() => WebBrowser.openBrowserAsync(verify)} />
         )}

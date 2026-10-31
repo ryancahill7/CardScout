@@ -1,4 +1,5 @@
 using CardScout.Core.Data;
+using CardScout.Core.Matching;
 using CardScout.Core.Models;
 
 namespace CardScout.Api.Endpoints;
@@ -94,6 +95,10 @@ public static class WatchlistEndpoints
         if (r.MinProfit is < 0) return (null, "minProfit can't be negative.");
         if (r.MinProfitPct is < 0 or > 1000) return (null, "minProfitPct must be between 0 and 1000.");
 
+        var category = (r.Category ?? TcgMatcher.Sports).Trim().ToLowerInvariant();
+        if (category is not (TcgMatcher.Sports or TcgMatcher.Tcg)) return (null, "category must be sports or tcg.");
+        var game = category == TcgMatcher.Tcg ? TcgMatcher.NormalizeGame(r.Game) : null;
+
         return (new Watchlist
         {
             UserId = userId,
@@ -105,7 +110,9 @@ public static class WatchlistEndpoints
             MinProfitPct = r.MinProfitPct ?? 20m,
             GradedOnly = r.GradedOnly ? "Y" : "N",
             Notify = r.Notify ? "Y" : "N",
-            IsActive = r.IsActive ? "Y" : "N"
+            IsActive = r.IsActive ? "Y" : "N",
+            Category = category,
+            Game = game
         }, null);
     }
 }

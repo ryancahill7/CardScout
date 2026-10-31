@@ -89,7 +89,7 @@ export function PricePanel({
               <Text style={styles.muted}>
                 {alternatives.length > 0
                   ? 'Pick the right card from the closest matches below, or fix the details and re-price.'
-                  : 'Check the player, year and set below, then re-price. You can also enter a price yourself.'}
+                  : 'Check the card details below, then re-price. You can also enter a price yourself.'}
               </Text>
             )}
           </View>

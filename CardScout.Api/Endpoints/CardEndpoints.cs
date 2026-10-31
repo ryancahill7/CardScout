@@ -7,6 +7,7 @@ using CardScout.Core.Flip;
 using CardScout.Core.Identify;
 using CardScout.Core.Images;
 using CardScout.Core.Listing;
+using CardScout.Core.Matching;
 using CardScout.Core.Models;
 using CardScout.Core.Pricing;
 
@@ -168,7 +169,12 @@ public static class CardEndpoints
             PurchaseSource = request.PurchaseSource?.Trim(),
             PurchasedAt = request.PurchasedAt,
             GradingCost = request.GradingCost,
-            CertNumber = request.CertNumber?.Trim()
+            CertNumber = request.CertNumber?.Trim(),
+            Category = TcgMatcher.NormalizeCategory(request.Category),
+            Game = TcgMatcher.IsTcg(request.Category) ? TcgMatcher.NormalizeGame(request.Game) : null,
+            SetCode = request.SetCode?.Trim(),
+            Rarity = request.Rarity?.Trim(),
+            CardLanguage = request.Language?.Trim()
         };
 
         var id = await repo.InsertAsync(item);
@@ -232,6 +238,16 @@ public static class CardEndpoints
                     case "certNumber": item.CertNumber = Str(value); break;
                     case "gradingCost": item.GradingCost = value?.GetValue<decimal?>(); break;
                     case "saleShippingCost": item.SaleShippingCost = value?.GetValue<decimal?>(); break;
+                    case "category":
+                        var category = Str(value)?.ToLowerInvariant() ?? TcgMatcher.Sports;
+                        if (category is not (TcgMatcher.Sports or TcgMatcher.Tcg))
+                            return Results.BadRequest(new { error = "category must be sports or tcg." });
+                        item.Category = category;
+                        break;
+                    case "game": item.Game = TcgMatcher.NormalizeGame(Str(value)); break;
+                    case "setCode": item.SetCode = Str(value); break;
+                    case "rarity": item.Rarity = Str(value); break;
+                    case "language": item.CardLanguage = Str(value); break;
                     case "ebayTitle":
                         var title = Str(value)?.Trim() ?? "";
                         if (title.Length == 0 || title.Length > 80)

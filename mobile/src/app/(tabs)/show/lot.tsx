@@ -14,9 +14,10 @@ import { analyzeLot, LotAnalysis } from '@/lib/api';
 import { prepareForUpload } from '@/lib/images';
 import { formatMoney } from '@/lib/money';
 import { useSettings } from '@/lib/settings';
+import { cardMetaParts } from '@/lib/card-meta';
 import { colors, fonts, radius, space } from '@/lib/theme';
 
-const STEPS = ['Finding every card…', 'Reading players & sets…', 'Pricing each card…', 'Adding it up…'];
+const STEPS = ['Finding every card…', 'Reading names & sets…', 'Pricing each card…', 'Adding it up…'];
 
 const parseMoney = (s: string) => {
   const n = Number(s.replace(/[$,]/g, '').trim());
@@ -156,7 +157,7 @@ function Results({ data }: { data: LotAnalysis }) {
           .sort((a, b) => (b.price.suggestedPrice ?? -1) - (a.price.suggestedPrice ?? -1))
           .map((c, i) => {
             const tier = c.price.tiers.find((t) => t.key === c.price.selectedTier);
-            const meta = [c.card.year, c.card.manufacturer, c.card.set, c.card.parallel, c.card.cardNumber && `#${c.card.cardNumber}`]
+            const meta = cardMetaParts(c.card)
               .filter(Boolean)
               .join(' · ');
             return (
@@ -164,7 +165,7 @@ function Results({ data }: { data: LotAnalysis }) {
                 <View style={{ flex: 1, gap: 2 }}>
                   <Text style={styles.cardName} numberOfLines={1}>
                     {c.card.player ?? 'Unknown'}
-                    {c.card.isRookie ? ' RC' : ''}
+                    {c.card.isRookie && c.card.category !== 'tcg' ? ' RC' : ''}
                     {c.card.isAutograph ? ' Auto' : ''}
                   </Text>
                   <Text style={styles.muted} numberOfLines={1}>

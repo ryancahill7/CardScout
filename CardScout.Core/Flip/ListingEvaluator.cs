@@ -26,8 +26,12 @@ public class ListingEvaluator
         _compsClient = compsClient;
     }
 
-    public async Task<CompMatchResult> MatchAsync(string title)
+    // category "tcg" matches the title as a Pokemon/Magic/Yu-Gi-Oh!/... card (game is a hint
+    // when the title doesn't name it); anything else uses the sports pipeline
+    public async Task<CompMatchResult> MatchAsync(string title, string? category = null, string? game = null)
     {
+        if (TcgMatcher.IsTcg(category)) return await MatchTcgAsync(title, game);
+
         var parsed = TitleCleaner.Parse(title);
         if (string.IsNullOrWhiteSpace(parsed.CleanedForSearch))
             return new CompMatchResult(null, "empty title");
@@ -68,6 +72,47 @@ public class ListingEvaluator
             return new CompMatchResult(null, "product lookup returned nothing");
 
         var record = CompCacheRecord.FromDetail(parsed.CleanedForSearch, detail);
+        await _compCacheRepo.UpsertAsync(record);
+        return new CompMatchResult(new CompMatch(record, best.Score, parsed), null);
+    }
+
+    private async Task<CompMatchResult> MatchTcgAsync(string title, string? game)
+    {
+        var query = TcgMatcher.ParseTitle(title, game);
+        var search = TcgMatcher.SearchQueries(query).FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(search))
+            return new CompMatchResult(null, "empty title");
+
+        // Callers only read Grade and CleanedForSearch from the parsed title
+        var parsed = new ParsedTitle { CleanedForSearch = search, CardNumber = query.Number, Grade = query.Grade };
+        var cacheKey = $"tcg|{search}";
+
+        var cached = await _compCacheRepo.GetCachedAsync(cacheKey);
+        if (cached != null)
+        {
+            var cachedScore = TcgMatcher.Score(query, cached.ProductName ?? "", cached.ConsoleName ?? "");
+            return cachedScore < MinConfidence
+                ? new CompMatchResult(null, $"low confidence {cachedScore:F2} (cached)")
+                : new CompMatchResult(new CompMatch(cached, cachedScore, parsed), null);
+        }
+
+        var candidates = await _compsClient.SearchAsync(search, tradingCardGames: true);
+        if (candidates.Count == 0)
+            return new CompMatchResult(null, "no candidates");
+
+        var best = candidates
+            .Select(c => new { Candidate = c, Score = TcgMatcher.Score(query, c.ProductName, c.ConsoleName) })
+            .OrderByDescending(x => x.Score)
+            .First();
+
+        if (best.Score < MinConfidence)
+            return new CompMatchResult(null, $"low confidence {best.Score:F2} -> best candidate: {best.Candidate.ProductName}");
+
+        var detail = await _compsClient.GetProductAsync(best.Candidate.Id);
+        if (detail == null)
+            return new CompMatchResult(null, "product lookup returned nothing");
+
+        var record = CompCacheRecord.FromDetail(cacheKey, detail);
         await _compCacheRepo.UpsertAsync(record);
         return new CompMatchResult(new CompMatch(record, best.Score, parsed), null);
     }

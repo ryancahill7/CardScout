@@ -80,13 +80,16 @@ public class WatchlistWorker : BackgroundService
     private async Task RunAsync(Watchlist watchlist, Dictionary<string, List<EbayListing>> searches, CancellationToken ct)
     {
         var query = watchlist.Query.Trim();
+        // Sports lists search eBay's sports card category; TCG lists the collectible card games one
+        var categoryId = EbaySearchClient.CategoryFor(watchlist.Category);
         var listings = new List<EbayListing>();
         if (watchlist.ListingType != WatchlistListingType.Auction)
-            listings.AddRange(await SearchOnceAsync(searches, $"BIN|{query}",
-                () => _ebay.SearchListingsAsync(query, "FIXED_PRICE", "newlyListed", SearchLimit)));
+            listings.AddRange(await SearchOnceAsync(searches, $"BIN|{categoryId}|{query}",
+                () => _ebay.SearchListingsAsync(query, "FIXED_PRICE", "newlyListed", SearchLimit, categoryId: categoryId)));
         if (watchlist.ListingType != WatchlistListingType.FixedPrice)
-            listings.AddRange(await SearchOnceAsync(searches, $"AUC|{query}",
-                () => _ebay.SearchListingsAsync(query, "AUCTION", "endingSoonest", SearchLimit, endBefore: DateTime.UtcNow + AuctionWindow)));
+            listings.AddRange(await SearchOnceAsync(searches, $"AUC|{categoryId}|{query}",
+                () => _ebay.SearchListingsAsync(query, "AUCTION", "endingSoonest", SearchLimit,
+                    endBefore: DateTime.UtcNow + AuctionWindow, categoryId: categoryId)));
 
         // Max price is applied here rather than in the eBay query, so lists with different caps share a search
         listings = listings
@@ -151,7 +154,7 @@ public class WatchlistWorker : BackgroundService
             ImageUrl = listing.ImageUrl
         };
 
-        var result = await _evaluator.MatchAsync(listing.Title);
+        var result = await _evaluator.MatchAsync(listing.Title, watchlist.Category, watchlist.Game);
         if (result.Match == null) return hit;
 
         var (comp, confidence, parsed) = result.Match;

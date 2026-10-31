@@ -1,7 +1,7 @@
 import { ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { CardFields } from '@/lib/api';
+import { CardCategory, CardFields, TCG_GAMES, TcgGame } from '@/lib/api';
 import { space } from '@/lib/theme';
 import { Field, SectionTitle, Surface, ToggleChip } from './ui';
 
@@ -24,12 +24,26 @@ export interface CardFormValues {
   ebayTitle: string;
   suggestedPrice: string;
   costBasis: string;
+  // 'tcg' swaps the sports fields for set / number / rarity / variant / language
+  category: CardCategory;
+  game: TcgGame | '';
+  setCode: string;
+  rarity: string;
+  language: string;
 }
+
+type TcgInput = {
+  category?: CardCategory | null;
+  game?: TcgGame | null;
+  setCode?: string | null;
+  rarity?: string | null;
+  language?: string | null;
+};
 
 const str = (v: string | number | null | undefined) => (v == null ? '' : String(v));
 
 export function toFormValues(
-  c: Omit<CardFields, 'ebayTitle' | 'certNumber'> & { ebayTitle: string; certNumber?: string | null },
+  c: Omit<CardFields, 'ebayTitle' | 'certNumber' | keyof TcgInput> & { ebayTitle: string; certNumber?: string | null } & TcgInput,
 ): CardFormValues {
   return {
     player: str(c.player),
@@ -49,6 +63,11 @@ export function toFormValues(
     ebayTitle: c.ebayTitle,
     suggestedPrice: c.suggestedPrice == null ? '' : c.suggestedPrice.toFixed(2),
     costBasis: c.costBasis == null ? '' : c.costBasis.toFixed(2),
+    category: c.category === 'tcg' ? 'tcg' : 'sports',
+    game: c.game ?? '',
+    setCode: str(c.setCode),
+    rarity: str(c.rarity),
+    language: str(c.language),
   };
 }
 
@@ -99,6 +118,11 @@ export function fromFormValues(v: CardFormValues): ParseResult {
       ebayTitle: title,
       suggestedPrice: numbers.suggestedPrice ?? null,
       costBasis: numbers.costBasis ?? null,
+      category: v.category,
+      game: v.category === 'tcg' ? v.game || 'other' : null,
+      setCode: v.category === 'tcg' ? text(v.setCode)?.toUpperCase() ?? null : null,
+      rarity: v.category === 'tcg' ? text(v.rarity) : null,
+      language: text(v.language),
     },
   };
 }
@@ -149,23 +173,23 @@ export function CardForm({
 
       <Surface>
         <SectionTitle>Card</SectionTitle>
-        <Field label="Player" value={values.player} onChangeText={set('player')} autoCapitalize="words" />
-        <Row ratio={[1, 2]}>
-          <Field label="Year" value={values.year} onChangeText={set('year')} keyboardType="number-pad" />
-          <Field label="Manufacturer" value={values.manufacturer} onChangeText={set('manufacturer')} />
-        </Row>
-        <Field label="Set" value={values.set} onChangeText={set('set')} />
-        <Row>
-          <Field label="Card #" value={values.cardNumber} onChangeText={set('cardNumber')} autoCapitalize="characters" />
-          <Field label="Serial #" value={values.serialNumber} onChangeText={set('serialNumber')} placeholder="e.g. 23/99" />
-        </Row>
-        <Field label="Parallel / variant" value={values.parallel} onChangeText={set('parallel')} placeholder="Base" />
         <View style={styles.chips}>
-          <ToggleChip label="Rookie" icon="star-outline" value={values.isRookie} onChange={set('isRookie')} />
-          <ToggleChip label="Auto" icon="create-outline" value={values.isAutograph} onChange={set('isAutograph')} />
-          <ToggleChip label="Relic" icon="shirt-outline" value={values.isRelic} onChange={set('isRelic')} />
+          <ToggleChip
+            label="Sports"
+            icon="baseball-outline"
+            value={values.category === 'sports'}
+            onChange={() => onChange({ ...values, category: 'sports' })}
+          />
+          <ToggleChip
+            label="Trading card game"
+            icon="sparkles-outline"
+            value={values.category === 'tcg'}
+            onChange={() => onChange({ ...values, category: 'tcg' })}
+          />
         </View>
+        {values.category === 'tcg' ? <TcgFields values={values} onChange={onChange} /> : <SportsFields values={values} onChange={onChange} />}
       </Surface>
+
 
       <Surface>
         <SectionTitle>Grading & condition</SectionTitle>
@@ -192,6 +216,77 @@ export function CardForm({
         <Field label="Condition notes" value={values.conditionNotes} onChangeText={set('conditionNotes')} multiline />
       </Surface>
     </View>
+  );
+}
+
+type FieldsProps = { values: CardFormValues; onChange: (values: CardFormValues) => void };
+
+function SportsFields({ values, onChange }: FieldsProps) {
+  const set = <K extends keyof CardFormValues>(key: K) => (value: CardFormValues[K]) =>
+    onChange({ ...values, [key]: value });
+  return (
+    <>
+      <Field label="Player" value={values.player} onChangeText={set('player')} autoCapitalize="words" />
+      <Row ratio={[1, 2]}>
+        <Field label="Year" value={values.year} onChangeText={set('year')} keyboardType="number-pad" />
+        <Field label="Manufacturer" value={values.manufacturer} onChangeText={set('manufacturer')} />
+      </Row>
+      <Field label="Set" value={values.set} onChangeText={set('set')} />
+      <Row>
+        <Field label="Card #" value={values.cardNumber} onChangeText={set('cardNumber')} autoCapitalize="characters" />
+        <Field label="Serial #" value={values.serialNumber} onChangeText={set('serialNumber')} placeholder="e.g. 23/99" />
+      </Row>
+      <Field label="Parallel / variant" value={values.parallel} onChangeText={set('parallel')} placeholder="Base" />
+      <View style={styles.chips}>
+        <ToggleChip label="Rookie" icon="star-outline" value={values.isRookie} onChange={set('isRookie')} />
+        <ToggleChip label="Auto" icon="create-outline" value={values.isAutograph} onChange={set('isAutograph')} />
+        <ToggleChip label="Relic" icon="shirt-outline" value={values.isRelic} onChange={set('isRelic')} />
+      </View>
+    </>
+  );
+}
+
+// Pokemon, Magic, Yu-Gi-Oh!, One Piece, Lorcana: name, set, collector number, rarity, variant, language
+function TcgFields({ values, onChange }: FieldsProps) {
+  const set = <K extends keyof CardFormValues>(key: K) => (value: CardFormValues[K]) =>
+    onChange({ ...values, [key]: value });
+  return (
+    <>
+      <View style={styles.chips}>
+        {TCG_GAMES.map((g) => (
+          <ToggleChip
+            key={g.key}
+            label={g.short}
+            icon="ellipse-outline"
+            value={values.game === g.key}
+            onChange={() => onChange({ ...values, game: g.key })}
+          />
+        ))}
+      </View>
+      <Field label="Card name" value={values.player} onChangeText={set('player')} placeholder="e.g. Charizard" />
+      <Row ratio={[2, 1]}>
+        <Field label="Set" value={values.set} onChangeText={set('set')} placeholder="e.g. Base Set" />
+        <Field label="Set code" value={values.setCode} onChangeText={set('setCode')} autoCapitalize="characters" placeholder="—" />
+      </Row>
+      <Row>
+        <Field label="Number" value={values.cardNumber} onChangeText={set('cardNumber')} autoCapitalize="characters" placeholder="e.g. 4/102" />
+        <Field label="Rarity" value={values.rarity} onChangeText={set('rarity')} placeholder="e.g. Rare Holo" />
+      </Row>
+      <Field
+        label="Variant / finish"
+        value={values.parallel}
+        onChangeText={set('parallel')}
+        placeholder="Standard"
+        hint="1st Edition, Shadowless, Reverse Holo, Foil, Alt Art…"
+      />
+      <Row ratio={[2, 1]}>
+        <Field label="Language" value={values.language} onChangeText={set('language')} placeholder="English" />
+        <Field label="Year" value={values.year} onChangeText={set('year')} keyboardType="number-pad" />
+      </Row>
+      <View style={styles.chips}>
+        <ToggleChip label="Signed" icon="create-outline" value={values.isAutograph} onChange={set('isAutograph')} />
+      </View>
+    </>
   );
 }
 

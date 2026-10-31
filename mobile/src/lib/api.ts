@@ -5,6 +5,23 @@ import { API_KEY, API_URL, isConfigured } from './config';
 export type CardStatus = 'UNLISTED' | 'LISTED' | 'SOLD';
 export const CARD_STATUSES: CardStatus[] = ['UNLISTED', 'LISTED', 'SOLD'];
 
+export type CardCategory = 'sports' | 'tcg';
+export type TcgGame = 'pokemon' | 'mtg' | 'yugioh' | 'one-piece' | 'lorcana' | 'other';
+
+export const TCG_GAMES: { key: TcgGame; label: string; short: string }[] = [
+  { key: 'pokemon', label: 'Pokémon', short: 'Pokemon' },
+  { key: 'mtg', label: 'Magic: The Gathering', short: 'MTG' },
+  { key: 'yugioh', label: 'Yu-Gi-Oh!', short: 'Yu-Gi-Oh!' },
+  { key: 'one-piece', label: 'One Piece', short: 'One Piece' },
+  { key: 'lorcana', label: 'Lorcana', short: 'Lorcana' },
+  { key: 'other', label: 'Other TCG', short: 'TCG' },
+];
+
+export const gameLabel = (game: string | null | undefined) =>
+  TCG_GAMES.find((g) => g.key === game)?.label ?? (game ? game : 'TCG');
+
+export const isTcg = (c: { category?: string | null } | null | undefined) => c?.category === 'tcg';
+
 export interface CardIdentification {
   player: string | null;
   year: number | null;
@@ -25,6 +42,14 @@ export interface CardIdentification {
   gradeOutlook?: GradeOutlook | null;
   // Grading company cert number from the slab label
   certNumber?: string | null;
+  // 'sports' or 'tcg' (Pokemon, Magic, Yu-Gi-Oh!, One Piece, Lorcana...). For TCG cards player is
+  // the card name, set the set/expansion, cardNumber the collector number as printed (4/102,
+  // LOB-EN001), parallel the variant/finish and manufacturer the publisher.
+  category?: CardCategory | null;
+  game?: TcgGame | null;
+  setCode?: string | null;
+  rarity?: string | null;
+  language?: string | null;
 }
 
 // Probabilities (sum to 1) that a raw card grades PSA 10 / 9 / 8 / 7 or lower
@@ -94,6 +119,11 @@ export interface PriceQuoteRequest {
   gradingCompany: string | null;
   grade: number | null;
   compProductId?: string | null;
+  category?: CardCategory | null;
+  game?: TcgGame | null;
+  setCode?: string | null;
+  rarity?: string | null;
+  language?: string | null;
 }
 
 export interface IdentifyResponse {
@@ -125,6 +155,11 @@ export interface CardFields {
   ebayTitle: string;
   suggestedPrice: number | null;
   costBasis: number | null;
+  category: CardCategory;
+  game: TcgGame | null;
+  setCode: string | null;
+  rarity: string | null;
+  language: string | null;
 }
 
 export interface CreateCardRequest extends CardFields {
@@ -245,6 +280,11 @@ export function quoteRequestFrom(fields: CardFields, compProductId?: string | nu
     gradingCompany: fields.gradingCompany,
     grade: fields.grade,
     compProductId: compProductId ?? null,
+    category: fields.category,
+    game: fields.game,
+    setCode: fields.setCode,
+    rarity: fields.rarity,
+    language: fields.language,
   };
 }
 
@@ -303,6 +343,9 @@ export interface LotCard {
   grade: number | null;
   confidence: number;
   position: string | null;
+  category?: CardCategory | null;
+  game?: TcgGame | null;
+  language?: string | null;
 }
 
 export type Verdict = 'STEAL' | 'BUY' | 'FAIR' | 'OVERPRICED' | 'UNKNOWN';
@@ -352,6 +395,9 @@ export type WatchlistListingType = 'ANY' | 'AUCTION' | 'FIXED_PRICE';
 export interface WatchlistInput {
   name: string;
   query: string;
+  // Which eBay category to search and how titles are matched; defaults to sports
+  category?: CardCategory;
+  game?: TcgGame | null;
   listingType: WatchlistListingType;
   maxPrice: number | null;
   minProfit: number;

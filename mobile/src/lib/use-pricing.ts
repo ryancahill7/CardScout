@@ -6,7 +6,7 @@ import { PriceQuote, quoteCard, quoteRequestFrom } from './api';
 
 // The form fields that change which comp a card matches; editing any of them makes the quote stale
 export const pricingKey = (v: CardFormValues) =>
-  [v.player, v.year, v.manufacturer, v.set, v.cardNumber, v.parallel, v.isAutograph, v.gradingCompany, v.grade]
+  [v.category, v.game, v.player, v.year, v.manufacturer, v.set, v.cardNumber, v.parallel, v.language, v.isAutograph, v.gradingCompany, v.grade]
     .map((x) => String(x).trim().toLowerCase())
     .join('|');
 

@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { Button, ErrorBanner, Loading } from '@/components/ui';
-import { getWatchlists, updateWatchlist, Watchlist } from '@/lib/api';
+import { gameLabel, getWatchlists, updateWatchlist, Watchlist } from '@/lib/api';
 import { formatMoney } from '@/lib/money';
 import { colors, fonts, radius, space } from '@/lib/theme';
 import { relativeTime } from '@/lib/time';
@@ -50,6 +50,7 @@ export default function WatchlistsScreen() {
             </Text>
             <Text style={styles.meta}>
               {[
+                item.category === 'tcg' && gameLabel(item.game ?? 'other'),
                 typeLabel[item.listingType],
                 item.maxPrice != null && `≤ ${formatMoney(item.maxPrice, { cents: false })}`,
                 `+$${item.minProfit} & ${item.minProfitPct}%`,
@@ -76,7 +77,8 @@ export default function WatchlistsScreen() {
       )}
       ListEmptyComponent={
         <Text style={styles.emptyText}>
-          No watchlists yet. Try a player plus a qualifier, e.g. “Elly De La Cruz PSA 10” or “2023 Bowman Chrome auto”.
+          No watchlists yet. Try a player plus a qualifier, e.g. “Elly De La Cruz PSA 10” or “2023 Bowman Chrome auto”, or a
+          Pokémon / TCG card like “Charizard 4/102 PSA 8”.
         </Text>
       }
     />
