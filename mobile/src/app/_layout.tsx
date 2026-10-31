@@ -1,16 +1,18 @@
 import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
 import { SpaceGrotesk_500Medium, SpaceGrotesk_700Bold, useFonts } from '@expo-google-fonts/space-grotesk';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { DarkTheme, Stack, ThemeProvider } from 'expo-router';
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
+import { DarkTheme, router, Stack, ThemeProvider, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 
 import { KeyboardDoneBar } from '@/components/ui';
+import { setApiListeners } from '@/lib/api';
 import { isConfigured } from '@/lib/config';
 import { refreshPushRegistration, useNotificationRouting } from '@/lib/notifications';
 import { colors, fonts } from '@/lib/theme';
+import { paywallParams, USAGE_QUERY_KEY } from '@/lib/usage';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -58,6 +60,7 @@ function AppStack() {
   useEffect(() => {
     if (isConfigured) void refreshPushRegistration();
   }, []);
+  useUsageLimitRouting();
 
   return (
     <Stack
@@ -70,6 +73,33 @@ function AppStack() {
       }}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="settings" options={{ presentation: 'modal', title: 'Settings' }} />
+      <Stack.Screen name="upgrade" options={{ presentation: 'modal', title: 'Plans', gestureEnabled: true }} />
     </Stack>
   );
+}
+
+// Any API call that comes back 402 (USAGE_LIMIT / PLAN_LIMIT) opens the paywall, once,
+// and every AI call refreshes the usage meter and banner
+function useUsageLimitRouting() {
+  const queryClient = useQueryClient();
+  const pathname = usePathname();
+  const pathRef = useRef(pathname);
+  useEffect(() => {
+    pathRef.current = pathname;
+  }, [pathname]);
+
+  useEffect(() => {
+    let lastOpened = 0;
+    setApiListeners({
+      onAiCall: () => void queryClient.invalidateQueries({ queryKey: USAGE_QUERY_KEY }),
+      onLimitReached: (info) => {
+        void queryClient.invalidateQueries({ queryKey: USAGE_QUERY_KEY });
+        // Don't stack paywalls when several requests fail together or it's already open
+        if (pathRef.current === '/upgrade' || Date.now() - lastOpened < 3000) return;
+        lastOpened = Date.now();
+        router.push({ pathname: '/upgrade', params: paywallParams(info) });
+      },
+    });
+    return () => setApiListeners({});
+  }, [queryClient]);
 }

@@ -77,6 +77,8 @@ export function useNotificationRouting() {
         router.push({ pathname: '/inventory/[id]', params: { id: String(data.cardId) } }, { withAnchor: true });
       } else if (data.type === 'watchlist-hit' || data.type === 'watchlist') {
         router.navigate('/deals');
+      } else if (data.type === 'usage') {
+        router.push('/upgrade');
       }
     }
 

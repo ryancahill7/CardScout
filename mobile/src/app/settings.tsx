@@ -6,11 +6,13 @@ import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Button, ErrorBanner, Field, SectionTitle, Surface } from '@/components/ui';
+import { UsageMeter } from '@/components/usage';
 import { sendTestPush } from '@/lib/api';
 import { openBillingPortal, openCheckout, useBillingStatus } from '@/lib/billing';
 import { registerForPush } from '@/lib/notifications';
 import { DEFAULT_SETTINGS, updateSettings, useSettings } from '@/lib/settings';
 import { colors, fonts, radius, space } from '@/lib/theme';
+import { useUsage } from '@/lib/usage';
 
 const num = (s: string) => {
   const n = Number(s.replace(/[$,%]/g, '').trim());
@@ -25,6 +27,7 @@ function close() {
 
 export default function SettingsScreen() {
   const settings = useSettings();
+  const usage = useUsage();
   const [minProfit, setMinProfit] = useState(String(settings.targets.minProfit));
   const [minProfitPct, setMinProfitPct] = useState(String(settings.targets.minProfitPct));
   const [shipping, setShipping] = useState(String(settings.gradingShipping));
@@ -93,6 +96,17 @@ export default function SettingsScreen() {
       />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
         <SubscriptionSection />
+
+        <Surface>
+          <SectionTitle>Plan & usage</SectionTitle>
+          {usage.data ? <UsageMeter usage={usage.data} /> : usage.isError ? <ErrorBanner message={usage.error.message} /> : null}
+          <Button
+            title={usage.data?.plan === 'pro' ? 'Pro plan' : 'See plans'}
+            icon="sparkles"
+            variant="secondary"
+            onPress={() => router.push('/upgrade')}
+          />
+        </Surface>
 
         <Surface>
           <SectionTitle>Card shows</SectionTitle>

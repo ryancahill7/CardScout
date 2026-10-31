@@ -9,6 +9,7 @@ using CardScout.Core.Identify;
 using CardScout.Core.Images;
 using CardScout.Core.Notifications;
 using CardScout.Core.Pricing;
+using CardScout.Core.Usage;
 Oracle.ManagedDataAccess.Client.OracleConfiguration.BindByName = true;
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
@@ -43,6 +44,7 @@ builder.Services.AddSingleton(new SubscriptionRepository(oracleConnString));
 builder.Services.AddSingleton(config.GetSection("Stripe").Get<StripeOptions>() ?? new StripeOptions());
 builder.Services.AddSingleton<ISubscriptionService, SubscriptionService>();
 builder.Services.AddSingleton<StripeBillingService>();
+builder.Services.AddSingleton(new AiUsageRepository(oracleConnString));
 
 builder.Services.AddSingleton(new EbayAuthClient(new HttpClient(), config["Ebay:AppId"]!, config["Ebay:CertId"]!));
 builder.Services.AddSingleton(sp => new EbaySearchClient(new HttpClient(), sp.GetRequiredService<EbayAuthClient>()));
@@ -55,7 +57,14 @@ builder.Services.AddSingleton<CardPricingService>();
 builder.Services.AddSingleton(new CardIdentifier(
     config["Anthropic:ApiKey"]!,
     config["Anthropic:Model"]!,
-    config["Anthropic:Effort"] ?? "medium"));
+    config["Anthropic:Effort"] ?? "medium",
+    config["Anthropic:FreeModel"]));
+
+// Plans, AI metering and the free plan's monthly cap (Billing:*, AnthropicPricing:*)
+builder.Services.AddSingleton(PlanCatalog.FromConfiguration(config));
+builder.Services.AddSingleton(AiCostCalculator.FromConfiguration(config));
+builder.Services.AddSingleton(config.GetSection("Billing").Get<UsageOptions>() ?? new UsageOptions());
+builder.Services.AddSingleton<UsageMeter>();
 
 var imageRoot = Path.Combine(builder.Environment.ContentRootPath, config["Images:Root"] ?? "card-images");
 builder.Services.AddSingleton<IImageStorage>(new LocalDiskImageStorage(imageRoot));
@@ -81,5 +90,6 @@ app.MapLotEndpoints();
 app.MapWatchlistEndpoints();
 app.MapPortfolioEndpoints();
 app.MapBillingEndpoints();
+app.MapUsageEndpoints();
 
 app.Run();

@@ -174,10 +174,39 @@ export type CardPatch = Partial<
 >;
 
 export class ApiError extends Error {
-  constructor(message: string, public status?: number) {
+  constructor(
+    message: string,
+    public status?: number,
+    // Machine-readable error code from the API, e.g. USAGE_LIMIT / PLAN_LIMIT (HTTP 402)
+    public code?: string,
+  ) {
     super(message);
   }
 }
+
+// Body of an HTTP 402 from the API: a Claude call would pass the monthly AI limit (USAGE_LIMIT),
+// or a plan limit such as active watchlists was hit (PLAN_LIMIT)
+export interface LimitReached {
+  code: 'USAGE_LIMIT' | 'PLAN_LIMIT';
+  error: string;
+  plan: 'free' | 'pro';
+  usedUsd?: number;
+  limitUsd?: number;
+  resetsAt?: string;
+  feature?: string;
+  limit?: number;
+}
+
+// The root layout registers these: it opens the paywall on a 402 and refreshes the usage meter
+// after AI calls, so individual screens don't have to handle either.
+const listeners: { onLimitReached?: (info: LimitReached) => void; onAiCall?: () => void } = {};
+
+export function setApiListeners(next: typeof listeners) {
+  listeners.onLimitReached = next.onLimitReached;
+  listeners.onAiCall = next.onAiCall;
+}
+
+export const isUsageLimit = (e: unknown) => e instanceof ApiError && e.status === 402;
 
 async function send(path: string, init: RequestInit = {}): Promise<Response> {
   if (!isConfigured) {
@@ -198,15 +227,20 @@ async function send(path: string, init: RequestInit = {}): Promise<Response> {
 
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
+    let code: string | undefined;
     try {
       const body = await response.json();
       if (body?.error) message = body.error;
       else if (body?.title) message = body.title;
+      if (typeof body?.code === 'string') code = body.code;
+      if (response.status === 402 && (code === 'USAGE_LIMIT' || code === 'PLAN_LIMIT')) {
+        listeners.onLimitReached?.(body as LimitReached);
+      }
     } catch {
       // non-JSON error body; keep the generic message
     }
     if (response.status === 401) message = 'The API rejected the key. Check EXPO_PUBLIC_API_KEY.';
-    throw new ApiError(message, response.status);
+    throw new ApiError(message, response.status, code);
   }
   return response;
 }
@@ -216,6 +250,40 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
+
+// For endpoints that call Claude: the usage meter is refreshed afterwards, even on failure
+// (a refused or malformed answer is still billed)
+async function aiRequest<T>(path: string, init: RequestInit): Promise<T> {
+  try {
+    return await request<T>(path, init);
+  } finally {
+    listeners.onAiCall?.();
+  }
+}
+
+// ---- Plans and AI usage ----
+
+export interface Usage {
+  plan: 'free' | 'pro';
+  usedUsd: number;
+  limitUsd: number;
+  percentUsed: number;
+  resetsAt: string;
+  scansThisMonth: number;
+}
+
+export interface Plan {
+  id: 'free' | 'pro';
+  name: string;
+  monthlyPriceUsd: number;
+  yearlyPriceUsd: number;
+  aiMonthlyLimitUsd: number;
+  maxWatchlists: number;
+  features: string[];
+}
+
+export const getUsage = () => request<Usage>('/api/usage');
+export const getPlans = () => request<Plan[]>('/api/plans');
 
 export function jsonInit(method: string, body: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
@@ -227,7 +295,7 @@ export function identifyCard(frontUri: string, backUri?: string | null): Promise
   // expo/fetch (the global fetch in SDK 58) rejects RN-style { uri, name, type } parts; it needs real Blobs
   form.append('front', new File(frontUri), 'front.jpg');
   if (backUri) form.append('back', new File(backUri), 'back.jpg');
-  return request<IdentifyResponse>('/api/cards/identify', { method: 'POST', body: form });
+  return aiRequest<IdentifyResponse>('/api/cards/identify', { method: 'POST', body: form });
 }
 
 // Re-prices from card fields (after edits), or pins to a comp the user picked
@@ -342,7 +410,7 @@ export function analyzeLot(
   if (opts.shipping != null) form.append('shipping', String(opts.shipping));
   form.append('minProfit', String(opts.minProfit));
   form.append('minProfitPct', String(opts.minProfitPct));
-  return request<LotAnalysis>('/api/lots/analyze', { method: 'POST', body: form });
+  return aiRequest<LotAnalysis>('/api/lots/analyze', { method: 'POST', body: form });
 }
 
 // ---- Watchlists ----
