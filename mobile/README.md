@@ -124,15 +124,51 @@ src/lib/                API client, flip + grading math (flip.ts mirrors Core/Fl
                         settings (saved to a JSON file), push notifications, image resize, theme
 ```
 
-## Going multi-user (when the app goes live)
+## Sign-in and accounts
 
-The data model is already per-user: `CARD_USERS` holds the users, `CARD_INVENTORY.USER_ID` links each card to its owner, every query filters by user, and images are stored under `users/<id>/`. What's still single-user is **how people sign in**, since right now everyone pastes an API key into `.env`. To go live:
+The app opens on a sign-in screen. Email + password works with no extra setup. **Use dev API key** (shown when `EXPO_PUBLIC_API_KEY` is set in `.env`) signs in as the API-key user, as before. **Settings → Account** has Sign out and Delete account. The API needs `Auth:JwtSigningKey` in user-secrets:
 
-1. Add real sign-in, e.g. Sign in with Apple via `expo-apple-authentication`, or an OAuth provider via `expo-auth-session`.
-2. In the API, replace `ApiKeyMiddleware` with JWT validation that maps the token's issuer and subject to `CARD_USERS.AUTH_PROVIDER` / `AUTH_SUBJECT`, creating the user on first sign-in, and calls `CurrentUser.Set`. The endpoints don't need to change.
-3. Store the session token with `expo-secure-store` instead of `EXPO_PUBLIC_API_KEY`.
-4. Host the API over HTTPS, and move images to blob storage with a new `IImageStorage` implementation.
-5. Add per-user rate limits on `/api/cards/identify`, since each call costs Anthropic credits.
+```powershell
+$b = New-Object byte[] 64; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
+dotnet user-secrets set "Auth:JwtSigningKey" ([Convert]::ToBase64String($b)) --project CardScout.Api
+```
+
+The Apple, Google, eBay and SSO buttons appear only when their settings are present (`GET /api/auth/providers`). Google, eBay and SSO run in the browser through the API, so the provider has to reach the API's callback over **https**. Before setting them up, expose the API (a tunnel such as `cloudflared tunnel --url http://localhost:5090`, or a deployed host) and set:
+
+```powershell
+dotnet user-secrets set "Auth:PublicBaseUrl" "https://<your-public-host>" --project CardScout.Api
+```
+
+**Sign in with Apple** (works in Expo Go on an iPhone). In Development, `Auth:Apple:Audiences` already contains `host.exp.Exponent` (Expo Go's bundle id), so the button works with no Apple setup. For your own build: enroll in the Apple Developer Program (paid), enable the *Sign in with Apple* capability on your App ID (EAS does this from `ios.usesAppleSignIn` in `app.json`), then set `Auth:Apple:Audiences:0` to your bundle id (e.g. `com.yourname.cardscout`).
+
+**Google.**
+1. Google Cloud Console → APIs & Services → OAuth consent screen: create the app (External) and add the scopes `openid`, `email` and `profile`.
+2. Credentials → Create OAuth client ID → **Web application**. Add the authorized redirect URI `https://<your-public-host>/api/auth/google/callback`.
+3. Set the keys:
+   ```powershell
+   dotnet user-secrets set "Auth:Google:WebClientId" "<id>.apps.googleusercontent.com" --project CardScout.Api
+   dotnet user-secrets set "Auth:Google:WebClientSecret" "<secret>" --project CardScout.Api
+   ```
+4. Optional, for a future native Google Sign-In build: create iOS/Android client ids and add them as `Auth:Google:ClientIds:0`, `:1`, and so on. `POST /api/auth/google` accepts ID tokens for those audiences.
+
+**eBay** (uses the existing `Ebay:AppId` / `Ebay:CertId`).
+1. developer.ebay.com → Application Keys → *User Tokens* → *Get a Token from eBay via Your Application* → add an eBay Redirect URL. Set **Your auth accepted URL** (and the declined URL) to `https://<your-public-host>/api/auth/ebay/callback`, and choose **OAuth**.
+2. Copy the generated **RuName** and set it: `dotnet user-secrets set "Auth:Ebay:RuName" "<RuName>" --project CardScout.Api`. To use sandbox keys, also set `Auth:Ebay:Environment` to `sandbox`.
+
+The API asks only for `commerce.identity.readonly` and reads the eBay `userId`/`username` from the Commerce Identity API. eBay doesn't vouch for the email, so eBay sign-ins never merge into an existing account.
+
+**Company SSO (any OpenID Connect provider: Entra ID, Okta, Auth0, Google Workspace…).** Register a web/confidential app with the redirect URI `https://<your-public-host>/api/auth/oidc/callback`, then set:
+```powershell
+dotnet user-secrets set "Auth:Oidc:Authority" "https://login.microsoftonline.com/<tenant>/v2.0" --project CardScout.Api
+dotnet user-secrets set "Auth:Oidc:ClientId" "<client id>" --project CardScout.Api
+dotnet user-secrets set "Auth:Oidc:ClientSecret" "<secret>" --project CardScout.Api   # omit for a public client (PKCE only)
+dotnet user-secrets set "Auth:Oidc:DisplayName" "Acme SSO" --project CardScout.Api
+dotnet user-secrets set "Auth:Oidc:Domains:0" "acme.com" --project CardScout.Api      # optional: asks for a work email first
+```
+
+**Password reset emails.** There's no email provider yet. In Development, the reset link and code are written to the API log (`DEV EMAIL (not sent)`). The link opens `cardscout://reset-password?token=…`, which Expo Go can't handle, so in Expo Go use **I have a reset code** and paste the code. Before launch, implement `IEmailSender` (`CardScout.Api/Auth/EmailSender.cs`) with a real provider.
+
+Still to do before going live: host the API over HTTPS, move images to blob storage (a new `IImageStorage`), and add per-user limits on `/api/cards/identify`.
 
 ## Push alerts
 

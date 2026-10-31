@@ -1,4 +1,6 @@
-﻿using CardScout.Api;
+﻿using System.Threading.RateLimiting;
+using CardScout.Api;
+using CardScout.Api.Auth;
 using CardScout.Api.Endpoints;
 using CardScout.Core.Comps;
 using CardScout.Core.Data;
@@ -59,6 +61,45 @@ builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 25 * 1024 * 
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<CurrentUser>();
 
+// ---- Sign-in (see CardScout.Api/Auth and Endpoints/AuthEndpoints.cs) ----
+builder.Services.Configure<AuthOptions>(config.GetSection("Auth"));
+builder.Services.AddSingleton(new UserAuthRepository(oracleConnString));
+builder.Services.AddSingleton(new RefreshTokenRepository(oracleConnString));
+builder.Services.AddSingleton(new PasswordResetRepository(oracleConnString));
+builder.Services.AddSingleton(new AuthFlowRepository(oracleConnString));
+builder.Services.AddSingleton(new AccountDeletionRepository(oracleConnString));
+builder.Services.AddSingleton<TokenService>();
+builder.Services.AddSingleton<AuthService>();
+builder.Services.AddSingleton<PasswordResetService>();
+builder.Services.AddSingleton<IEmailSender, LoggingEmailSender>();
+var authHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+builder.Services.AddSingleton(new ExternalTokenValidator(authHttp));
+builder.Services.AddSingleton(sp => ActivatorUtilities.CreateInstance<BrokeredSignInService>(sp, authHttp));
+
+// Per-IP limits on the anonymous auth endpoints; per-account lockout is in AuthService
+builder.Services.AddRateLimiter(o =>
+{
+    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    o.OnRejected = async (ctx, ct) =>
+    {
+        if (ctx.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+            ctx.HttpContext.Response.Headers.RetryAfter = ((int)retryAfter.TotalSeconds).ToString();
+        await ctx.HttpContext.Response.WriteAsJsonAsync(new { error = "Too many attempts. Wait a minute and try again." }, ct);
+    };
+    string Ip(HttpContext c) => c.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    o.AddPolicy(AuthEndpoints.RateLimitPolicy, c => RateLimitPartition.GetFixedWindowLimiter(Ip(c),
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+    // Sign-up and password reset: fewer, slower (they create accounts / send email)
+    o.AddPolicy(AuthEndpoints.StrictRateLimitPolicy, c => RateLimitPartition.GetTokenBucketLimiter(Ip(c),
+        _ => new TokenBucketRateLimiterOptions
+        {
+            TokenLimit = 10,
+            TokensPerPeriod = 1,
+            ReplenishmentPeriod = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+        }));
+});
+
 builder.Services.AddCors(o => o.AddPolicy("Development", p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
 var app = builder.Build();
@@ -66,9 +107,14 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
     app.UseCors("Development");
 
+// Fail at startup, not on the first request, when the JWT signing key is missing or weak
+app.Services.GetRequiredService<TokenService>();
+
+app.UseRateLimiter();
 app.UseMiddleware<ApiKeyMiddleware>();
 
 app.MapGet("/", () => Results.Ok(new { service = "CardScout.Api", status = "ok" }));
+app.MapAuthEndpoints();
 app.MapCardEndpoints();
 app.MapLotEndpoints();
 app.MapWatchlistEndpoints();

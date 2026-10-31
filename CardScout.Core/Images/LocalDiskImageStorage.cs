@@ -35,6 +35,15 @@ public class LocalDiskImageStorage : IImageStorage
         return Task.CompletedTask;
     }
 
+    public Task DeleteFolderAsync(string folder)
+    {
+        if (string.IsNullOrWhiteSpace(folder.Trim('/')))
+            throw new ArgumentException("Refusing to delete the storage root", nameof(folder));
+        var fullPath = ResolvePath(folder.Trim('/'));
+        if (Directory.Exists(fullPath)) Directory.Delete(fullPath, recursive: true);
+        return Task.CompletedTask;
+    }
+
     private string ResolvePath(string relativePath)
     {
         var fullPath = Path.GetFullPath(Path.Combine(_root, relativePath));
