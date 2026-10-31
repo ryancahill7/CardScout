@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 
 import { AuthInput, TextInputHandle, AuthScreen, authStyles, Divider, ProviderButton, TextLink } from '@/components/auth-ui';
-import { Button, ErrorBanner, HoloFrame } from '@/components/ui';
+import { BrandMark } from '@/components/brand-mark';
+import { Button, ErrorBanner } from '@/components/ui';
 import { getProviders, hasDevApiKey, signIn, signInWithDevKey } from '@/lib/auth';
 import { isConfigured } from '@/lib/config';
 import { appleSignInAvailable, BrowserProvider, signInWithAppleNative, signInWithBrowser } from '@/lib/social-sign-in';
@@ -50,13 +51,9 @@ export default function SignInScreen() {
   return (
     <AuthScreen edges={['top', 'bottom']}>
       <View style={styles.brand}>
-        <HoloFrame borderRadius={radius.lg} width={1.5}>
-          <View style={styles.logo}>
-            <Text style={styles.logoText}>CS</Text>
-          </View>
-        </HoloFrame>
+        <BrandMark />
         <Text style={authStyles.title} accessibilityRole="header">
-          Sign in to CardScout
+          Sign in
         </Text>
         <Text style={authStyles.subtitle}>Your collection, watchlists and deal alerts, on any device.</Text>
       </View>
@@ -135,8 +132,6 @@ export default function SignInScreen() {
 
 const styles = StyleSheet.create({
   brand: { gap: space.md, marginTop: space.xl, marginBottom: space.sm },
-  logo: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
-  logoText: { color: colors.primary, fontFamily: fonts.display, fontSize: 22, letterSpacing: -0.5 },
   providers: { gap: space.md },
   appleButton: { height: 52, width: '100%' },
   footer: { alignItems: 'center', marginTop: space.sm },
