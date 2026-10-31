@@ -73,6 +73,7 @@ function AppStack() {
     queryClient.clear();
   }, [sessionKey, queryClient]);
 
+  useAuthRedirect(auth.status);
   useNotificationRouting();
   useEffect(() => {
     if (isConfigured && signedIn) void refreshPushRegistration();
@@ -101,6 +102,25 @@ function AppStack() {
       <Stack.Screen name="auth-callback" options={{ headerShown: false }} />
     </Stack>
   );
+}
+
+const AUTH_PATHS = ['/sign-in', '/sign-up', '/forgot-password', '/reset-password', '/sso', '/auth-callback'];
+
+// Stack.Protected hides the other side's screens when the session changes, but the URL stays where
+// it was (e.g. "/" after signing out from Settings), which no longer matches anything. Move to the
+// right start screen: sign-in when signed out, the Scan tab when signed in. Auth screens opened
+// from a link (e.g. a password reset email) are left alone.
+function useAuthRedirect(status: string) {
+  const pathname = usePathname();
+  const previous = useRef(status);
+  useEffect(() => {
+    const was = previous.current;
+    previous.current = status;
+    if (status === 'loading' || status === was) return;
+    const onAuthScreen = AUTH_PATHS.includes(pathname);
+    if (status === 'signedIn' && onAuthScreen) router.replace('/');
+    else if (status !== 'signedIn' && !onAuthScreen) router.replace('/sign-in');
+  }, [status, pathname]);
 }
 
 // Any API call that comes back 402 (USAGE_LIMIT / PLAN_LIMIT) opens the paywall, once,
