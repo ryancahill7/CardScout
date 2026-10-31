@@ -47,6 +47,7 @@
 
 - `Worker`: every 10 minutes, searches eBay for each active player in `WATCHED_PLAYERS` and saves auctions ending within about 1h plus newly listed Buy It Now items to `EBAY_LISTINGS`.
 - `BroadSweepWorker`: once an hour, saves the 50 newest "baseball card" listings to `EBAY_LISTINGS`.
+- `TcgSweepWorker`: once an hour, saves the 30 newest listings per trading card game (Pokemon, Magic, Yu-Gi-Oh!, One Piece, Lorcana; eBay category 2536) to `EBAY_LISTINGS` with `CATEGORY = 'tcg'` and `GAME`. `MatcherService` passes those to `ListingEvaluator.MatchAsync(title, category, game)`, which prices them against PriceCharting.
 - `RecentListingsWorker`: every 10 minutes, saves the newest listings for the players in `TrackedPlayers` (hardcoded) to `RECENT_LISTINGS`.
 - `MatcherService`: takes `PENDING` listings, parses the title (`TitleCleaner`), finds and scores SportsCardsPro candidates (`MatchScorer`, minimum confidence 0.55, results cached in `COMP_CACHE`), picks the price for the card's grade, computes net profit and writes a row to `DEALS`.
 - `AvailabilityCheckWorker`: every 15 minutes, re-checks active deals on eBay and sets sold or removed listings to `SOLD`.
@@ -72,6 +73,7 @@ All secrets live in .NET user-secrets, not in the repo. Never commit them or har
 - `Ebay:AppId` and `Ebay:CertId`
 - `SportsCardsPro:Token` (worker and API)
 - `Anthropic:ApiKey` (API only)
+- `Email:Resend:ApiKey` (API, optional) and `Email:From`: password reset emails go through Resend (free tier). Without a key they are only logged in Development. Until a domain is verified in Resend, `From` must be `CardScout <onboarding@resend.dev>`, which only delivers to the Resend account's own address.
 - `Stripe:SecretKey` and `Stripe:WebhookSecret` (API only). The non-secret `Stripe:PriceIdMonthly`, optional `Stripe:PriceIdYearly`, and optional URL overrides `Stripe:SuccessUrl` / `Stripe:CancelUrl` / `Stripe:PortalReturnUrl` can go in user-secrets too (defaults: the API's own `/billing/*` pages)
 - `Auth:JwtSigningKey` (API only, required: base64 of at least 32 random bytes; the API won't start without it)
 - Optional sign-in providers (API only; a provider with missing settings is hidden in the app):

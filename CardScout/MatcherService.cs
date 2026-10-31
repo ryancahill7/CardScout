@@ -56,7 +56,7 @@ public class MatcherService : BackgroundService
 
     private async Task ProcessListingAsync(EbayListingRecord listing)
     {
-        var result = await _evaluator.MatchAsync(listing.Title);
+        var result = await _evaluator.MatchAsync(listing.Title, listing.Category, listing.Game);
         if (result.Match == null)
         {
             await _listingsRepo.UpdateMatchStatusAsync(listing.ItemId, "NO_MATCH");

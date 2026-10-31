@@ -24,9 +24,9 @@ public class EbayListingsRepository
 
         const string insertSql = @"
             INSERT INTO EBAY_LISTINGS 
-                (ITEM_ID, TITLE, CURRENT_PRICE, CONDITION, END_TIME, LISTING_URL, FIRST_SEEN, MATCH_STATUS, LISTING_TYPE, SHIPPING_COST)
+                (ITEM_ID, TITLE, CURRENT_PRICE, CONDITION, END_TIME, LISTING_URL, FIRST_SEEN, MATCH_STATUS, LISTING_TYPE, SHIPPING_COST, CATEGORY, GAME)
             VALUES 
-                (:ItemId, :Title, :CurrentPrice, :Condition, :EndTime, :ListingUrl, SYSTIMESTAMP, 'PENDING', :ListingType, :ShippingCost)";
+                (:ItemId, :Title, :CurrentPrice, :Condition, :EndTime, :ListingUrl, SYSTIMESTAMP, 'PENDING', :ListingType, :ShippingCost, :Category, :Game)";
         await conn.ExecuteAsync(insertSql, listing);
         return true;
     }
@@ -60,7 +60,7 @@ public class EbayListingsRepository
                     ITEM_ID AS ItemId, TITLE AS Title, CURRENT_PRICE AS CurrentPrice,
                     CONDITION AS Condition, END_TIME AS EndTime, LISTING_URL AS ListingUrl,
                     FIRST_SEEN AS FirstSeen, MATCH_STATUS AS MatchStatus, LISTING_TYPE AS ListingType,
-                    SHIPPING_COST AS ShippingCost
+                    SHIPPING_COST AS ShippingCost, CATEGORY AS Category, GAME AS Game
                 FROM EBAY_LISTINGS
                 WHERE MATCH_STATUS = 'PENDING'
                 ORDER BY FIRST_SEEN ASC

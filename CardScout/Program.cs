@@ -35,6 +35,7 @@ builder.Services.AddHostedService<AvailabilityCheckWorker>();
 builder.Services.AddHostedService<Worker>();
 builder.Services.AddHostedService<MatcherService>();
 builder.Services.AddHostedService<BroadSweepWorker>();
+builder.Services.AddHostedService<TcgSweepWorker>();
 builder.Services.AddHostedService<RecentListingsWorker>();
 builder.Services.AddHostedService<WatchlistWorker>();
 builder.Services.AddHostedService<PortfolioPriceWorker>();

@@ -17,4 +17,7 @@ public class EbayListingRecord
     public string MatchStatus { get; set; } = "";
     public string ListingType { get; set; } = "";
     public decimal? ShippingCost { get; set; }
+    // "sports" (or null, older rows) / "tcg"; Game is pokemon, mtg, yugioh, one-piece, lorcana
+    public string? Category { get; set; }
+    public string? Game { get; set; }
 }
