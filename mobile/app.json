@@ -8,7 +8,8 @@
     "scheme": "cardscout",
     "userInterfaceStyle": "dark",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "usesAppleSignIn": true
     },
     "android": {
       "adaptiveIcon": {
@@ -53,7 +54,8 @@
         {
           "color": "#5BF2B0"
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

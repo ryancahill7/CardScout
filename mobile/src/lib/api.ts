@@ -1,6 +1,7 @@
 import { File } from 'expo-file-system';
 
-import { API_KEY, API_URL, isConfigured } from './config';
+import { currentAuthHeaders, getAuthHeaders, refreshSession } from './auth';
+import { API_URL, isConfigured } from './config';
 
 export type CardStatus = 'UNLISTED' | 'LISTED' | 'SOLD';
 export const CARD_STATUSES: CardStatus[] = ['UNLISTED', 'LISTED', 'SOLD'];
@@ -208,21 +209,35 @@ export function setApiListeners(next: typeof listeners) {
 
 export const isUsageLimit = (e: unknown) => e instanceof ApiError && e.status === 402;
 
-async function send(path: string, init: RequestInit = {}): Promise<Response> {
+async function send(path: string, init: RequestInit = {}, retried = false): Promise<Response> {
   if (!isConfigured) {
-    throw new ApiError('API not configured. Set EXPO_PUBLIC_API_URL and EXPO_PUBLIC_API_KEY in mobile/.env, then restart Expo.');
+    throw new ApiError('API not configured. Set EXPO_PUBLIC_API_URL in mobile/.env, then restart Expo.');
+  }
+
+  let authHeaders: Record<string, string>;
+  try {
+    authHeaders = await getAuthHeaders();
+  } catch (e) {
+    throw new ApiError(e instanceof Error ? e.message : String(e), 401);
   }
 
   let response: Response;
   try {
     response = await fetch(`${API_URL}${path}`, {
       ...init,
-      headers: { 'X-Api-Key': API_KEY, Accept: 'application/json', ...init.headers },
+      headers: { ...authHeaders, Accept: 'application/json', ...init.headers },
     });
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
     console.warn(`fetch ${init.method ?? 'GET'} ${path} failed:`, detail);
     throw new ApiError(`Can't reach the API at ${API_URL} (${detail}). Is it running, and is your phone on the same Wi-Fi?`);
+  }
+
+  // Access token expired or was revoked: refresh once and retry. A failed refresh signs out,
+  // which sends the app back to the sign-in screen.
+  if (response.status === 401 && !retried && 'Authorization' in authHeaders) {
+    if (await refreshSession().catch(() => false)) return send(path, init, true);
+    throw new ApiError('Your session ended. Sign in again.', 401);
   }
 
   if (!response.ok) {
@@ -239,7 +254,7 @@ async function send(path: string, init: RequestInit = {}): Promise<Response> {
     } catch {
       // non-JSON error body; keep the generic message
     }
-    if (response.status === 401) message = 'The API rejected the key. Check EXPO_PUBLIC_API_KEY.';
+    if (response.status === 401 && 'X-Api-Key' in authHeaders) message = 'The API rejected the key. Check EXPO_PUBLIC_API_KEY.';
     throw new ApiError(message, response.status, code);
   }
   return response;
@@ -325,10 +340,11 @@ export const getCard = (id: number) => request<Card>(`/api/cards/${id}`);
 
 export const updateCard = (id: number, patch: CardPatch) => request<Card>(`/api/cards/${id}`, jsonInit('PATCH', patch));
 
-// For <Image source={...}>: image endpoints need the API key header too
+// For <Image source={...}>: image endpoints need the auth header too (the session refreshes
+// itself before the access token expires, so this synchronous snapshot stays valid)
 export function imageSource(relativeUrl: string | null) {
   if (!relativeUrl) return null;
-  return { uri: `${API_URL}${relativeUrl}`, headers: { 'X-Api-Key': API_KEY } };
+  return { uri: `${API_URL}${relativeUrl}`, headers: currentAuthHeaders() };
 }
 
 // ---- Market: what the card is listed for on eBay right now (asking prices, not sales) ----
@@ -509,6 +525,8 @@ export const getMarketDeals = () => request<MarketDeal[]>('/api/deals');
 
 export const registerPushToken = (token: string, platform: string) =>
   request<void>('/api/push-tokens', jsonInit('POST', { token, platform }));
+export const unregisterPushToken = (token: string) =>
+  request<void>(`/api/push-tokens?token=${encodeURIComponent(token)}`, { method: 'DELETE' });
 export const sendTestPush = () => request<{ sent: number }>('/api/push-tokens/test', { method: 'POST' });
 
 // ---- Portfolio ----

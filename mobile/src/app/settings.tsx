@@ -1,15 +1,16 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { router, Stack } from 'expo-router';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Button, ErrorBanner, Field, SectionTitle, Surface } from '@/components/ui';
 import { UsageMeter } from '@/components/usage';
 import { sendTestPush } from '@/lib/api';
 import { openBillingPortal, openCheckout, useBillingStatus } from '@/lib/billing';
-import { registerForPush } from '@/lib/notifications';
+import { deleteAccount, fetchMe, signOut, useAuth } from '@/lib/auth';
+import { registerForPush, unregisterPush } from '@/lib/notifications';
 import { DEFAULT_SETTINGS, updateSettings, useSettings } from '@/lib/settings';
 import { colors, fonts, radius, space } from '@/lib/theme';
 import { useUsage } from '@/lib/usage';
@@ -183,6 +184,8 @@ export default function SettingsScreen() {
             </View>
           )}
         </Surface>
+
+        <AccountSection />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -261,6 +264,83 @@ function SubscriptionSection() {
   );
 }
 
+const providerNames: Record<string, string> = { apple: 'Apple', google: 'Google', ebay: 'eBay', oidc: 'SSO' };
+
+// Who's signed in, sign out, and delete account (required by the App Store when sign-up exists)
+function AccountSection() {
+  const auth = useAuth();
+  const me = useQuery({ queryKey: ['auth-me'], queryFn: fetchMe, enabled: auth.method === 'tokens' });
+  const [busy, setBusy] = useState<'signout' | 'delete' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const user = me.data?.user ?? auth.user;
+
+  async function doSignOut() {
+    setBusy('signout');
+    await unregisterPush();
+    await signOut();
+  }
+
+  function confirmSignOut() {
+    Alert.alert('Sign out?', 'You can sign back in any time. Deal alerts stop on this phone until you do.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Sign out', style: 'destructive', onPress: () => void doSignOut() },
+    ]);
+  }
+
+  async function doDelete() {
+    setError(null);
+    setBusy('delete');
+    try {
+      await deleteAccount();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(null);
+    }
+  }
+
+  function confirmDelete() {
+    Alert.alert(
+      'Delete your account?',
+      'This permanently deletes your account, collection, card photos, watchlists, alerts and price history. It can’t be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () =>
+            Alert.alert('Are you sure?', 'Everything is deleted right away.', [
+              { text: 'Keep my account', style: 'cancel' },
+              { text: 'Delete forever', style: 'destructive', onPress: () => void doDelete() },
+            ]),
+        },
+      ],
+    );
+  }
+
+  const methods = [user?.hasPassword ? 'Email & password' : null, ...(user?.providers ?? []).map((p) => providerNames[p] ?? p)];
+  const via = methods.filter(Boolean).join(', ');
+
+  return (
+    <Surface>
+      <SectionTitle>Account</SectionTitle>
+      {auth.method === 'apikey' ? (
+        <Text style={styles.hint}>Signed in with the dev API key from mobile/.env.</Text>
+      ) : (
+        <View style={{ gap: 2 }}>
+          {user?.displayName && <Text style={styles.accountName}>{user.displayName}</Text>}
+          <Text style={styles.hint}>{user?.email ?? 'No email on this account'}</Text>
+          {!!via && <Text style={styles.hint}>Signs in with {via}</Text>}
+        </View>
+      )}
+      <Button title="Sign out" icon="log-out-outline" variant="secondary" onPress={confirmSignOut} loading={busy === 'signout'} disabled={!!busy} />
+      {auth.method === 'tokens' && (
+        <Button title="Delete account" icon="trash-outline" variant="danger" onPress={confirmDelete} loading={busy === 'delete'} disabled={!!busy} />
+      )}
+      {error && <ErrorBanner message={error} />}
+    </Surface>
+  );
+}
+
 const styles = StyleSheet.create({
   planPill: {
     paddingHorizontal: space.sm,
@@ -271,6 +351,7 @@ const styles = StyleSheet.create({
   },
   planPillPro: { backgroundColor: colors.primary, borderColor: colors.primary },
   planPillText: { fontSize: 11, fontFamily: fonts.bodyBold, color: colors.textSecondary, letterSpacing: 0.6 },
+  accountName: { color: colors.text, fontFamily: fonts.bodySemiBold, fontSize: 16 },
   content: { padding: space.lg, gap: space.lg, paddingBottom: 64 },
   row: { flexDirection: 'row', gap: space.md },
   label: { fontSize: 12, fontFamily: fonts.bodySemiBold, color: colors.textSecondary, letterSpacing: 0.3 },

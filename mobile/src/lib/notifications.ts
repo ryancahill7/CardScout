@@ -6,7 +6,7 @@ import { router } from 'expo-router';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 
-import { registerPushToken } from './api';
+import { registerPushToken, unregisterPushToken } from './api';
 
 // Show alerts as banners even while the app is open (e.g. browsing a show with the app up)
 Notifications.setNotificationHandler({
@@ -63,6 +63,19 @@ export async function refreshPushRegistration() {
   try {
     const perms = await Notifications.getPermissionsAsync();
     if (perms.granted) await registerForPush();
+  } catch {
+    // best effort
+  }
+}
+
+// Before signing out: stop this device getting the signed-out user's alerts (best effort)
+export async function unregisterPush() {
+  try {
+    const perms = await Notifications.getPermissionsAsync();
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+    if (!perms.granted || !projectId || !Device.isDevice) return;
+    const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
+    await unregisterPushToken(token);
   } catch {
     // best effort
   }

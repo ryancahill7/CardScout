@@ -9,6 +9,7 @@ import { View } from 'react-native';
 
 import { KeyboardDoneBar } from '@/components/ui';
 import { setApiListeners } from '@/lib/api';
+import { loadSession, useAuth } from '@/lib/auth';
 import { isConfigured } from '@/lib/config';
 import { refreshPushRegistration, useNotificationRouting } from '@/lib/notifications';
 import { colors, fonts } from '@/lib/theme';
@@ -55,12 +56,30 @@ export default function RootLayout() {
   );
 }
 
+// Auth gate: signed-out users only see the (auth) screens; signed-in users only the app.
+// Stack.Protected moves between them when the session changes (sign in, sign out, refresh failure).
 function AppStack() {
+  const auth = useAuth();
+  const queryClient = useQueryClient();
+  const signedIn = auth.status === 'signedIn';
+  const sessionKey = auth.method === 'apikey' ? 'apikey' : (auth.user?.id ?? null);
+
+  useEffect(() => {
+    void loadSession();
+  }, []);
+
+  // A different user (or none) must never see the previous user's cached data
+  useEffect(() => {
+    queryClient.clear();
+  }, [sessionKey, queryClient]);
+
   useNotificationRouting();
   useEffect(() => {
-    if (isConfigured) void refreshPushRegistration();
-  }, []);
+    if (isConfigured && signedIn) void refreshPushRegistration();
+  }, [signedIn, sessionKey]);
   useUsageLimitRouting();
+
+  if (auth.status === 'loading') return <View style={{ flex: 1, backgroundColor: colors.background }} />;
 
   return (
     <Stack
@@ -71,9 +90,15 @@ function AppStack() {
         headerTitleStyle: { fontFamily: fonts.bodySemiBold, color: colors.text },
         contentStyle: { backgroundColor: colors.background },
       }}>
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="settings" options={{ presentation: 'modal', title: 'Settings' }} />
-      <Stack.Screen name="upgrade" options={{ presentation: 'modal', title: 'Plans', gestureEnabled: true }} />
+      <Stack.Protected guard={signedIn}>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="settings" options={{ presentation: 'modal', title: 'Settings' }} />
+        <Stack.Screen name="upgrade" options={{ presentation: 'modal', title: 'Plans', gestureEnabled: true }} />
+      </Stack.Protected>
+      <Stack.Protected guard={!signedIn}>
+        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+      </Stack.Protected>
+      <Stack.Screen name="auth-callback" options={{ headerShown: false }} />
     </Stack>
   );
 }

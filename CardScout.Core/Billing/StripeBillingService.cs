@@ -135,6 +135,25 @@ public class StripeBillingService
         return session.Url;
     }
 
+    // Account deletion: deleting the Stripe customer cancels its subscriptions immediately, so a
+    // deleted user is never charged again. No-op for users who never started checkout.
+    public async Task DeleteCustomerAsync(long userId)
+    {
+        var existing = await _repo.GetAsync(userId);
+        if (existing == null) return;
+        if (_client == null)
+            throw new BillingException(503, "Billing isn't configured, so the subscription can't be cancelled. Try again later.");
+        try
+        {
+            await new CustomerService(Client).DeleteAsync(existing.StripeCustomerId);
+        }
+        catch (StripeException ex) when (ex.StripeError?.Code == "resource_missing")
+        {
+            // Already deleted in Stripe
+        }
+        _plans.Invalidate(userId);
+    }
+
     // The success page calls this so the plan is current even before (or without) the webhook.
     // Only the user the session was created for is updated.
     public async Task<long?> SyncCheckoutSessionAsync(string sessionId)

@@ -4,6 +4,11 @@
     <ProjectReference Include="..\CardScout.Core\CardScout.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- JWT creation/validation and OpenID Connect discovery + JWKS for Google, Apple and SSO -->
+    <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.0.1" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>

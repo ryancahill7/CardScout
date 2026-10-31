@@ -8,4 +8,6 @@ public interface IImageStorage
     Task<string> SaveAsync(Stream content, string extension, string folder);
     Task<Stream?> OpenReadAsync(string path);
     Task DeleteAsync(string path);
+    // Removes everything under a folder (account deletion)
+    Task DeleteFolderAsync(string folder);
 }
