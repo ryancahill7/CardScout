@@ -34,6 +34,19 @@ interface ShowItem {
   bought?: Card;
   buying?: boolean;
   buyError?: string;
+  // Back photo added after a shaky front-only read; the card is re-read with both sides
+  backUri?: string;
+  improving?: boolean;
+  improveError?: string;
+}
+
+// Show mode reads the front only, for speed. A raw sports card often has its year and card #
+// only on the back, so offer the back when the front-only read is unsure. Slabs (the label has
+// everything) and TCG cards (identical backs) never need it.
+function needsBack(r: IdentifyResponse): boolean {
+  const c = r.card;
+  if (c.category === 'tcg' || c.gradingCompany) return false;
+  return c.confidence < 0.8 || c.year == null || !c.cardNumber || (r.price.matchConfidence ?? 0) < 0.8;
 }
 
 const parseMoney = (s: string) => {
@@ -49,6 +62,8 @@ export default function ShowScreen() {
   const settings = useSettings();
   const [items, setItems] = useState<ShowItem[]>([]);
   const [capturing, setCapturing] = useState(false);
+  // Key of the scan whose back is being photographed
+  const [backFor, setBackFor] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const counter = useRef(0);
@@ -71,6 +86,36 @@ export default function ShowScreen() {
     },
     [patch],
   );
+
+  // Re-read one card with its back. The old result stays on screen until the new one arrives.
+  const improve = useCallback(
+    async (key: string, frontUri: string, backUri: string) => {
+      patch(key, { backUri, improving: true, improveError: undefined });
+      try {
+        const result = await identifyCard(frontUri, backUri);
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        patch(key, { result, improving: false });
+      } catch (e) {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        patch(key, { improving: false, improveError: e instanceof Error ? e.message : String(e) });
+      }
+    },
+    [patch],
+  );
+
+  async function handleBackCaptured(key: string, photo: CapturedPhoto) {
+    setBackFor(null);
+    const item = items.find((i) => i.key === key);
+    if (!item) return;
+    setPreparing(true);
+    try {
+      const uri = await prepareForUpload(photo.uri, photo.width, photo.height);
+      setExpanded(key);
+      void improve(key, item.photoUri, uri);
+    } finally {
+      setPreparing(false);
+    }
+  }
 
   async function handleCaptured(photo: CapturedPhoto) {
     setCapturing(false);
@@ -157,6 +202,17 @@ export default function ShowScreen() {
     );
   }
 
+  if (backFor) {
+    return (
+      <CardCamera
+        side="back"
+        mode="quick"
+        hint="The back has the year and card #"
+        onCaptured={(photo) => handleBackCaptured(backFor, photo)}
+        onCancel={() => setBackFor(null)}
+      />
+    );
+  }
   if (capturing) {
     return <CardCamera side="front" mode="quick" onCaptured={handleCaptured} onCancel={() => setCapturing(false)} />;
   }
@@ -212,6 +268,8 @@ export default function ShowScreen() {
               onAsking={(asking) => patch(item.key, { asking })}
               onBuy={() => buy(item)}
               onRetry={() => identify(item.key, item.photoUri)}
+              onAddBack={() => setBackFor(item.key)}
+              onRetryBack={() => item.backUri && improve(item.key, item.photoUri, item.backUri)}
               onRemove={() => setItems((all) => all.filter((i) => i.key !== item.key))}
             />
           )}
@@ -286,6 +344,8 @@ const ShowItemCard = memo(function ShowItemCard({
   onAsking,
   onBuy,
   onRetry,
+  onAddBack,
+  onRetryBack,
   onRemove,
 }: {
   item: ShowItem;
@@ -294,6 +354,8 @@ const ShowItemCard = memo(function ShowItemCard({
   onAsking: (v: string) => void;
   onBuy: () => void;
   onRetry: () => void;
+  onAddBack: () => void;
+  onRetryBack: () => void;
   onRemove: () => void;
 }) {
   const settings = useSettings();
@@ -368,6 +430,21 @@ const ShowItemCard = memo(function ShowItemCard({
       )}
 
       {r && r.priceError && <ErrorBanner message={r.priceError} />}
+
+      {item.improving && (
+        <View style={styles.backRow}>
+          <Ionicons name="sync" size={16} color={colors.primary} />
+          <Text style={styles.backText}>Re-reading with the back…</Text>
+        </View>
+      )}
+      {item.improveError && <ErrorBanner message={item.improveError} onRetry={onRetryBack} />}
+      {r && !item.bought && !item.backUri && needsBack(r) && (
+        <View style={styles.backRow}>
+          <Ionicons name="help-circle-outline" size={18} color={colors.warning} />
+          <Text style={styles.backText}>Not sure of the year or card #. The back usually has them.</Text>
+          <Button title="Add back" icon="camera-reverse-outline" variant="secondary" compact onPress={onAddBack} />
+        </View>
+      )}
 
       {r && !item.bought && (
         <VerdictPanel
@@ -527,6 +604,15 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     backgroundColor: colors.primarySoft,
   },
+  backRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    padding: space.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceRaised,
+  },
+  backText: { flex: 1, fontSize: 13, fontFamily: fonts.body, color: colors.textSecondary, lineHeight: 18 },
   boughtText: { fontSize: 14, fontFamily: fonts.bodySemiBold, color: colors.primary },
   ladder: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   tier: {
