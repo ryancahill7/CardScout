@@ -53,8 +53,16 @@ public class PasswordResetService
             $"Or paste this reset code into the app: {token}\n\n" +
             $"The link works once and expires in {_options.PasswordResetMinutes} minutes. " +
             "If you didn't ask for this, ignore this email; your password hasn't changed.";
-        await _email.SendAsync(user.Email, "Reset your CardScout password", body);
-        _logger.LogInformation("Password reset link issued for user {UserId}", user.Id);
+        try
+        {
+            await _email.SendAsync(user.Email, "Reset your CardScout password", body);
+            _logger.LogInformation("Password reset link issued for user {UserId}", user.Id);
+        }
+        catch (Exception ex)
+        {
+            // Same response as for an unknown email, so a send failure doesn't reveal the account exists
+            _logger.LogError(ex, "Couldn't send the password reset email for user {UserId}", user.Id);
+        }
     }
 
     // Null on success, otherwise an error for the user

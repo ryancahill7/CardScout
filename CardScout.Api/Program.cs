@@ -87,7 +87,12 @@ builder.Services.AddSingleton(new AccountDeletionRepository(oracleConnString));
 builder.Services.AddSingleton<TokenService>();
 builder.Services.AddSingleton<AuthService>();
 builder.Services.AddSingleton<PasswordResetService>();
-builder.Services.AddSingleton<IEmailSender, LoggingEmailSender>();
+// Resend when Email:Resend:ApiKey is set; otherwise emails (reset links) are only logged in Development
+if (!string.IsNullOrWhiteSpace(config["Email:Resend:ApiKey"]))
+    builder.Services.AddSingleton<IEmailSender>(sp => new ResendEmailSender(new HttpClient(), config["Email:Resend:ApiKey"]!,
+        config["Email:From"] ?? "CardScout <onboarding@resend.dev>", sp.GetRequiredService<ILogger<ResendEmailSender>>()));
+else
+    builder.Services.AddSingleton<IEmailSender, LoggingEmailSender>();
 var authHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
 builder.Services.AddSingleton(new ExternalTokenValidator(authHttp));
 builder.Services.AddSingleton(sp => ActivatorUtilities.CreateInstance<BrokeredSignInService>(sp, authHttp));
