@@ -55,7 +55,8 @@
           "color": "#5BF2B0"
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-localization"
     ],
     "experiments": {
       "typedRoutes": true,

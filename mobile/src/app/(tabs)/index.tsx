@@ -71,38 +71,12 @@ export default function ScanScreen() {
 
   // Bumped by Start over, so a slow identify that finishes afterwards is ignored
   const attempt = useRef(0);
-  // The front photo the latest front-only read is for, so a retaken front ignores the old read
-  const frontReadFor = useRef<string | null>(null);
-  // Set when the user skips the back before the front-only read has come back
-  const useFrontOnly = useRef(false);
-
-  // Front-only read, started as soon as the front is captured (while the user lines up the
-  // back). It says whether the card is a TCG card: TCG backs are identical within a game, so
-  // those go straight to review. It's also the result when a sports card's back is skipped.
-  const frontRead = useMutation({
-    mutationFn: async (frontUri: string) => {
-      const mine = attempt.current;
-      const result = await identifyCard(frontUri);
-      return { result, frontUri, stale: mine !== attempt.current || frontReadFor.current !== frontUri };
-    },
-    onSuccess: ({ result, stale }) => {
-      if (stale) return;
-      if (isTcg(result.card) || useFrontOnly.current) {
-        attempt.current++; // a front+back identify already in flight isn't needed any more
-        setCapturing(null);
-        applyResult(result);
-      }
-    },
-  });
-
-  const frontReadResult = frontRead.data && !frontRead.data.stale && frontRead.data.frontUri === photos.front ? frontRead.data.result : null;
 
   const identify = useMutation({
-    mutationFn: async () => {
+    // One Claude call per scan: front + back, or front only when the back isn't needed (TCG cards)
+    mutationFn: async (sides: Record<Side, string | null>) => {
       const mine = ++attempt.current;
-      // Front only and the background read already has it: no second call
-      if (!photos.back && frontReadResult) return { result: frontReadResult, stale: false };
-      const result = await identifyCard(photos.front!, photos.back);
+      const result = await identifyCard(sides.front!, sides.back);
       return { result, stale: mine !== attempt.current };
     },
     onSuccess: ({ result, stale }) => {
@@ -123,9 +97,6 @@ export default function ScanScreen() {
 
   function reset() {
     attempt.current++;
-    frontReadFor.current = null;
-    useFrontOnly.current = false;
-    frontRead.reset();
     setPhotos({ front: null, back: null });
     setCapturing('front');
     setIdentified(null);
@@ -146,15 +117,11 @@ export default function ScanScreen() {
       const uri = await prepareForUpload(photo.uri, photo.width, photo.height);
       const next = { ...photos, [side]: uri };
       setPhotos(next);
-      if (side === 'front') {
-        // Start reading the front now; a TCG card skips the back step when it comes back
-        frontReadFor.current = uri;
-        useFrontOnly.current = false;
-        frontRead.mutate(uri);
-      }
-      // Guided flow: front, then back (sports only, optional), then review. Retakes go straight back to review.
-      setCapturing(side === 'front' && !next.back ? 'back' : null);
+      // Guided flow: front, then back (or "No back needed"), then the scan runs. Retakes go back to review.
+      const firstFront = side === 'front' && !next.back && !identified;
+      setCapturing(firstFront ? 'back' : null);
       identify.reset();
+      if (side === 'back' && !identified) identify.mutate(next);
     } catch (e) {
       setPhotoError(`Couldn't process the photo: ${e instanceof Error ? e.message : String(e)}`);
       setCapturing(null);
@@ -194,14 +161,7 @@ export default function ScanScreen() {
   if (preparing) return <Loading label="Processing photo…" />;
 
   if (capturing) {
-    const backHint =
-      capturing !== 'back' || !photos.front
-        ? null
-        : frontRead.isPending
-          ? 'Checking the card…'
-          : frontReadResult && !isTcg(frontReadResult.card)
-            ? 'Sports card · the back adds the year and card #'
-            : null;
+    const backHint = capturing === 'back' && photos.front ? 'Sports cards: the back adds the year and card #' : null;
     return (
       <CardCamera
         key={capturing}
@@ -213,11 +173,11 @@ export default function ScanScreen() {
           capturing === 'back' && photos.front
             ? () => {
                 setCapturing(null);
-                if (frontReadResult) applyResult(frontReadResult);
-                else if (frontRead.isPending) useFrontOnly.current = true;
+                if (!identified) identify.mutate({ front: photos.front, back: null });
               }
             : undefined
         }
+        skipLabel="No back needed (Pokémon, etc.)"
       />
     );
   }
@@ -247,8 +207,6 @@ export default function ScanScreen() {
   }
 
   const busy = identify.isPending || save.isPending;
-  // Waiting on the front-only read after skipping the back
-  const readingFront = !identified && useFrontOnly.current && frontRead.isPending;
   // TCG cards don't need the back, so the slot is only shown when there is one
   const sides = identified && isTcg(identified.card) && !photos.back ? (['front'] as const) : (['front', 'back'] as const);
 
@@ -263,7 +221,7 @@ export default function ScanScreen() {
                 ? 'Check the details, then add it to your collection'
                 : photos.back
                   ? 'Both sides captured. Ready when you are.'
-                  : 'Front captured. Add the back for sports cards, or go ahead.'
+                  : 'Front captured. Add the back for sports cards, or identify the front only.'
             }
             right={
               <Pressable onPress={reset} disabled={save.isPending} hitSlop={10} accessibilityRole="button" accessibilityLabel="Start over">
@@ -279,7 +237,7 @@ export default function ScanScreen() {
                 key={side}
                 side={side}
                 uri={photos[side]}
-                scanning={identify.isPending || readingFront}
+                scanning={identify.isPending}
                 disabled={busy}
                 onPress={() => setCapturing(side)}
               />
@@ -290,15 +248,15 @@ export default function ScanScreen() {
 
           {!identified && (
             <View style={{ gap: space.md }}>
-              {identify.isError && <ErrorBanner message={identify.error.message} onRetry={() => identify.mutate()} />}
+              {identify.isError && <ErrorBanner message={identify.error.message} onRetry={() => identify.mutate(photos)} />}
               <Button
-                title={identify.isPending || readingFront ? 'Identifying…' : 'Identify & price'}
+                title={identify.isPending ? 'Identifying…' : 'Identify & price'}
                 icon="sparkles"
-                loading={identify.isPending || readingFront}
+                loading={identify.isPending}
                 disabled={!photos.front}
-                onPress={() => identify.mutate()}
+                onPress={() => identify.mutate(photos)}
               />
-              {(identify.isPending || readingFront) && <IdentifyProgress />}
+              {(identify.isPending) && <IdentifyProgress />}
             </View>
           )}
 

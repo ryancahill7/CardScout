@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import * as Linking from 'expo-linking';
+import * as Localization from 'expo-localization';
 import * as WebBrowser from 'expo-web-browser';
 import { useEffect } from 'react';
 import { AppState } from 'react-native';
@@ -24,6 +25,15 @@ export interface BillingStatus {
 }
 
 export type BillingInterval = 'month' | 'year';
+
+// Paying on the web from inside the app is only allowed by Apple/Google in the US, so Upgrade
+// is shown only when the phone's region is the US. Elsewhere the app says Pro isn't available yet.
+export const UPGRADE_REGIONS = ['US'];
+export function canUpgradeHere(): boolean {
+  const region = Localization.getLocales()[0]?.regionCode ?? null;
+  return region != null && UPGRADE_REGIONS.includes(region.toUpperCase());
+}
+export const UPGRADE_UNAVAILABLE = 'Pro is only available in the US for now.';
 
 export const BILLING_STATUS_KEY = ['billing-status'] as const;
 

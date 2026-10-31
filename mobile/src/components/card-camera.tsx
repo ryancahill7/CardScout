@@ -20,8 +20,8 @@ export interface CapturedPhoto {
 export type CameraMode = 'card' | 'quick' | 'lot';
 
 // Full-screen guided capture for one side of a card, with a photo-library fallback.
-// hint is a status line under the instructions (e.g. "Checking card type…"); onSkip adds a
-// Skip button (the back photo is optional).
+// hint is a status line under the instructions; onSkip adds a wide button above the shutter
+// (skipLabel) for going on without this photo, e.g. a Pokemon card whose back adds nothing.
 export function CardCamera({
   side,
   onCaptured,
@@ -29,6 +29,7 @@ export function CardCamera({
   mode = 'card',
   hint,
   onSkip,
+  skipLabel,
 }: {
   side: 'front' | 'back';
   onCaptured: (photo: CapturedPhoto) => void;
@@ -36,6 +37,7 @@ export function CardCamera({
   mode?: CameraMode;
   hint?: string | null;
   onSkip?: () => void;
+  skipLabel?: string;
 }) {
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
@@ -162,6 +164,17 @@ export function CardCamera({
 
       <View style={[styles.controls, { paddingBottom: Math.max(insets.bottom, space.lg) + space.sm }]}>
         {error && <ErrorBanner message={error} />}
+        {onSkip && (
+          <Pressable
+            onPress={onSkip}
+            disabled={busy}
+            style={({ pressed }) => [styles.skipPill, pressed && { opacity: 0.7 }]}
+            accessibilityRole="button"
+            accessibilityLabel={skipLabel ?? `Skip the ${side} photo`}>
+            <Ionicons name="play-forward" size={16} color="#FFFFFF" />
+            <Text style={styles.skipText}>{skipLabel ?? 'Skip'}</Text>
+          </Pressable>
+        )}
         <View style={styles.controlRow}>
           <Pressable
             onPress={pickFromLibrary}
@@ -182,18 +195,7 @@ export function CardCamera({
             ]}>
             <View style={styles.shutterInner} />
           </Pressable>
-          {onSkip ? (
-            <Pressable
-              onPress={onSkip}
-              style={styles.glassButtonLarge}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel={`Skip the ${side} photo`}>
-              <Text style={styles.skipText}>Skip</Text>
-            </Pressable>
-          ) : (
-            <View style={styles.glassButtonLarge} />
-          )}
+          <View style={styles.glassButtonLarge} />
         </View>
       </View>
     </View>
@@ -206,6 +208,18 @@ function Corner({ style }: { style: ViewStyle }) {
 }
 
 const styles = StyleSheet.create({
+  skipPill: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+  },
   container: { flex: 1, backgroundColor: '#000' },
   // In normal flow (not floating over the preview) so the guide below can never overlap it
   topBar: {

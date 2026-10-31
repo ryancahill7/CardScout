@@ -7,7 +7,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Button, ErrorBanner, HoloFrame, Surface } from '@/components/ui';
 import { UsageMeter } from '@/components/usage';
 import { Plan } from '@/lib/api';
-import { openCheckout } from '@/lib/billing';
+import { canUpgradeHere, openCheckout, UPGRADE_UNAVAILABLE } from '@/lib/billing';
 import { colors, fonts, radius, space } from '@/lib/theme';
 import { formatResetDate, usePlans, useUsage } from '@/lib/usage';
 
@@ -110,13 +110,19 @@ export default function UpgradeScreen() {
             </View>
 
             {checkout.isError && <ErrorBanner message={checkout.error.message} />}
-            <Button
-              title={`Upgrade to Pro · ${interval === 'month' ? `${money(pro.monthlyPriceUsd)}/mo` : `${money(pro.yearlyPriceUsd)}/yr`}`}
-              icon="sparkles"
-              loading={checkout.isPending}
-              onPress={() => checkout.mutate()}
-            />
-            <Text style={styles.fine}>Cancel anytime. Billed through Stripe; you&apos;ll finish checkout in your browser.</Text>
+            {canUpgradeHere() ? (
+              <>
+                <Button
+                  title={`Upgrade to Pro · ${interval === 'month' ? `${money(pro.monthlyPriceUsd)}/mo` : `${money(pro.yearlyPriceUsd)}/yr`}`}
+                  icon="sparkles"
+                  loading={checkout.isPending}
+                  onPress={() => checkout.mutate()}
+                />
+                <Text style={styles.fine}>Cancel anytime. Billed through Stripe; you&apos;ll finish checkout in your browser.</Text>
+              </>
+            ) : (
+              <Text style={styles.fine}>{UPGRADE_UNAVAILABLE}</Text>
+            )}
           </>
         )}
 
