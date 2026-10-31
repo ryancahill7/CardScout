@@ -6,6 +6,7 @@ import { memo, useMemo, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { HeaderActions } from '@/components/header-actions';
 import { ErrorBanner, Loading, ScreenTitle, StatusPicker, StatusPill, ToggleChip } from '@/components/ui';
 import { Card, CardStatus, getCards, imageSource, TCG_GAMES } from '@/lib/api';
 import { formatMoney, formatSignedMoney, netProceeds } from '@/lib/money';
@@ -48,7 +49,7 @@ export default function InventoryScreen() {
           }
           ListHeaderComponent={
             <View style={{ gap: space.lg, marginBottom: space.xs }}>
-              <ScreenTitle title="Collection" subtitle={`${cards.data.length} card${cards.data.length === 1 ? '' : 's'}`} />
+              <ScreenTitle title="Collection" subtitle={`${cards.data.length} card${cards.data.length === 1 ? '' : 's'}`} right={<HeaderActions />} />
               {cards.data.length > 0 && <Summary cards={cards.data} />}
               <StatusPicker value={status} onChange={setStatus} includeAll />
               <KindFilter cards={cards.data} value={kind} onChange={setKind} />

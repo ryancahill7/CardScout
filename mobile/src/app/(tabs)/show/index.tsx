@@ -11,6 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { CapturedPhoto, CardCamera } from '@/components/card-camera';
 import { GradingPanel } from '@/components/grading-panel';
 import { SoldCompsPanel } from '@/components/sold-comps-panel';
+import { HeaderActions } from '@/components/header-actions';
 import { Button, ErrorBanner, Loading, ScreenTitle } from '@/components/ui';
 import { UsageBanner } from '@/components/usage';
 import { VerdictPanel } from '@/components/verdict-panel';
@@ -176,16 +177,7 @@ export default function ShowScreen() {
               <ScreenTitle
                 title="Show mode"
                 subtitle="Sold comps, cash offers, buy or pass"
-                right={
-                  <Pressable
-                    onPress={() => router.push('/settings')}
-                    hitSlop={10}
-                    accessibilityRole="button"
-                    accessibilityLabel="Profit target settings"
-                    style={styles.iconButton}>
-                    <Ionicons name="options-outline" size={20} color={colors.text} />
-                  </Pressable>
-                }
+                right={<HeaderActions />}
               />
               <UsageBanner />
               {items.length > 0 && (

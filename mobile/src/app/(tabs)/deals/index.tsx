@@ -8,6 +8,7 @@ import { memo, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { HeaderActions } from '@/components/header-actions';
 import { Button, ErrorBanner, Loading, ScreenTitle } from '@/components/ui';
 import { getHits, getMarketDeals, getWatchlists, HitStatus, MarketDeal, updateHitStatus, WatchlistHit } from '@/lib/api';
 import { formatMoney } from '@/lib/money';
@@ -69,10 +70,9 @@ export default function DealsScreen() {
             : `${activeLists} active watchlist${activeLists === 1 ? '' : 's'} · checked every 5 min`
         }
         right={
-          <View style={{ flexDirection: 'row', gap: space.sm }}>
+          <HeaderActions>
             <IconButton icon="list" label="Watchlists" onPress={() => router.push('/deals/watchlists')} />
-            <IconButton icon="settings-outline" label="Settings" onPress={() => router.push('/settings')} />
-          </View>
+          </HeaderActions>
         }
       />
       <View style={styles.segmented} accessibilityRole="tablist">
