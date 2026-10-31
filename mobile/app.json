@@ -8,12 +8,11 @@
     "scheme": "cardscout",
     "userInterfaceStyle": "dark",
     "ios": {
-      "icon": "./assets/expo.icon",
       "usesAppleSignIn": true
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#06080D",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -31,7 +30,7 @@
         {
           "backgroundColor": "#06080D",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "imageWidth": 120
         }
       ],
       [
