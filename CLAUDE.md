@@ -19,6 +19,8 @@
   - `LotEndpoints.cs`: `POST /api/lots/analyze` (multipart `photo` plus optional `askingPrice`, `shipping`, `minProfit`, `minProfitPct`): Claude finds every card in one photo, each is priced, and `FlipAnalyzer.AnalyzeLot` judges the total.
   - `WatchlistEndpoints.cs`: `GET/POST /api/watchlists`, `PUT/DELETE /api/watchlists/{id}`, `GET /api/watchlists/hits?status=&all=&watchlistId=`, `GET/PATCH /api/watchlists/hits/{id}`.
   - `PortfolioEndpoints.cs`: `GET /api/portfolio` (P&L, monthly, movers), `GET /api/portfolio/export` (CSV), `GET /api/deals` (shared `DEALS` grid, profitable only), `POST/DELETE /api/push-tokens`, `POST /api/push-tokens/test`.
+  - `BillingEndpoints.cs`: `GET /api/billing/status` (`{ plan: "free"|"pro", status, currentPeriodEnd, cancelAtPeriodEnd, billingEnabled, yearlyAvailable }`), `POST /api/billing/checkout` (`{ interval: "month"|"year", returnUrl? }` → `{ url }` of a Stripe Checkout page), `POST /api/billing/portal` (`{ returnUrl? }` → `{ url }` of the Stripe Billing Portal), `POST /api/stripe/webhook` (no API key; verified by `Stripe-Signature`), and the browser landing pages `GET /billing/success|cancel|return?app=` that bounce back into the app (`returnUrl`/`app` must be a `cardscout://`, `exp://` or `exps://` link).
+- **Subscriptions (Stripe, paid in the browser, not in-app purchase).** `Core/Billing/StripeBillingService.cs` creates the Stripe customer (one per user, `CARD_SUBSCRIPTIONS.STRIPE_CUSTOMER_ID`, metadata `userId`), Checkout and portal sessions, and handles webhooks: `checkout.session.completed`, `customer.subscription.created/updated/deleted`, `invoice.payment_failed`. Each event re-reads the subscription from Stripe (events can arrive out of order) and is recorded in `CARD_STRIPE_EVENTS` so redeliveries are no-ops. The success page also syncs the session, so the plan updates even if the webhook is late. **To check whether a user is Pro, inject `ISubscriptionService` and call `GetPlanAsync(userId)` / `IsProAsync(userId)`** (Stripe status `active` or `trialing` = pro; cached 60 s, invalidated by webhooks). Without Stripe keys everything still runs: every user is free and checkout returns 503. The app side is `mobile/src/lib/billing.ts` (`getBillingStatus`, `openCheckout`, `openBillingPortal`, `useBillingStatus`) and the Subscription section in Settings.
 - **Multi-user.** `ApiKeyMiddleware` hashes `X-Api-Key`, looks it up in `CARD_USERS` and sets the scoped `CurrentUser`. Every inventory, watchlist, push-token and price-history repository method takes `userId`, and images are stored under `users/{userId}/`. Keep it that way: **never add an unscoped user-data query**. Workers loop over `CardUsersRepository.GetActiveIdsAsync()` and make user-scoped calls. Add users with `dotnet run --project CardScout.Api -- create-user --name X --email Y`.
 - Identification is in `Core/Identify/CardIdentifier.cs`. It uses the Anthropic C# SDK (beta messages: structured JSON output, server-side refusal fallback), and the model and effort come from `Anthropic:*` in appsettings. Price quotes are in `Core/Pricing/CardPricingService.cs`, which reuses the SportsCardsPro match pipeline and returns the full grade ladder, runner-up candidates and net-after-fees (`SellerFees`, shared with `MatcherService`). It refreshes `COMP_CACHE` rows older than 3 days. `CompsClient` throws `CompsApiException` on SportsCardsPro error responses (e.g. an expired token) instead of returning no results. `CompPriceSelector` holds the grade→price mapping shared with `MatcherService`.
 - **Flip math** is `Core/Flip/FlipAnalyzer.cs` (verdict `STEAL`/`BUY`/`FAIR`/`OVERPRICED`/`UNKNOWN`, max buy price / max bid, opening offer). `mobile/src/lib/flip.ts` mirrors it so show mode updates instantly; change both together. Grading ROI is computed only in the app (`analyzeGrading` in `flip.ts`), using the AI `gradeOutlook` from identification or a preset.
@@ -54,8 +56,28 @@ All secrets live in .NET user-secrets, not in the repo. Never commit them or har
 - `Ebay:AppId` and `Ebay:CertId`
 - `SportsCardsPro:Token` (worker and API)
 - `Anthropic:ApiKey` (API only)
+- `Stripe:SecretKey` and `Stripe:WebhookSecret` (API only). The non-secret `Stripe:PriceIdMonthly`, optional `Stripe:PriceIdYearly`, and optional URL overrides `Stripe:SuccessUrl` / `Stripe:CancelUrl` / `Stripe:PortalReturnUrl` can go in user-secrets too (defaults: the API's own `/billing/*` pages)
 
 The worker, web and API projects each have their own `UserSecretsId`, so set each value in every project that uses it. User API keys are not config: only their SHA-256 hashes are stored, in `CARD_USERS`. The mobile app reads `EXPO_PUBLIC_API_URL` / `EXPO_PUBLIC_API_KEY` from `mobile/.env` (gitignored). Check them with `dotnet user-secrets list --project CardScout` or `--project CardScout.Web`.
+
+### Stripe test mode setup
+
+1. In the Stripe dashboard (test mode), create a product "CardScout Pro" with a recurring monthly price (and optionally a yearly one). Copy the `price_...` ids.
+2. In Settings → Billing → Customer portal, activate the portal (allow cancel, and plan switching if you add a yearly price).
+3. Set the secrets on the API project:
+   ```
+   dotnet user-secrets set "Stripe:SecretKey" "sk_test_..." --project CardScout.Api
+   dotnet user-secrets set "Stripe:PriceIdMonthly" "price_..." --project CardScout.Api
+   dotnet user-secrets set "Stripe:PriceIdYearly" "price_..." --project CardScout.Api   # optional
+   ```
+4. Forward webhooks to the local API with the Stripe CLI (free) and set the signing secret it prints:
+   ```
+   stripe listen --forward-to http://localhost:5090/api/stripe/webhook \
+     --events checkout.session.completed,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,invoice.payment_failed
+   dotnet user-secrets set "Stripe:WebhookSecret" "whsec_..." --project CardScout.Api
+   ```
+   In production, add a webhook endpoint in the dashboard for `https://<api-host>/api/stripe/webhook` with those events instead.
+5. Restart the API, open Settings in the app, tap Upgrade, and pay with card `4242 4242 4242 4242` (any future date, any CVC). `stripe trigger customer.subscription.updated` etc. exercise the webhook. Stripe's Checkout page must be able to reach the success URL, which is the API's address as the phone sees it (e.g. `http://192.168.x.x:5090/billing/success`).
 
 ## Database
 
@@ -75,6 +97,8 @@ CardScout uses the **shared Zenith Oracle database**: Oracle 21c EE at `db.zenit
 - `CARD_WATCHLISTS` / `WATCHLIST_HITS`: per-user saved eBay searches and every listing they've priced (unique per watchlist + item)
 - `CARD_PUSH_TOKENS`: Expo push tokens per user/device
 - `CARD_PRICE_HISTORY`: market price snapshots for held cards
+- `CARD_SUBSCRIPTIONS`: one row per user with their Stripe customer/subscription ids, `PLAN` (`FREE`/`PRO`), Stripe `STATUS`, `CURRENT_PERIOD_END`, `CANCEL_AT_PERIOD_END`; written by the API and the Stripe webhook
+- `CARD_STRIPE_EVENTS`: Stripe webhook event ids already processed (idempotency)
 - DDL for CardScout tables is in `db/` as numbered scripts. Add a new script for each schema change.
 - `WATCHED_PLAYERS`: players the main `Worker` searches (`ACTIVE = 'Y'`). This table is shared with the Zenith sports projects.
 

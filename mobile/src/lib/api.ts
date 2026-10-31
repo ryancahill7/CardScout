@@ -211,13 +211,13 @@ async function send(path: string, init: RequestInit = {}): Promise<Response> {
   return response;
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await send(path, init);
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
-function jsonInit(method: string, body: unknown): RequestInit {
+export function jsonInit(method: string, body: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
 }
 

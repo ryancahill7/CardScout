@@ -21,7 +21,9 @@ public class ApiKeyMiddleware
 
     public async Task InvokeAsync(HttpContext context, CurrentUser currentUser, CardUsersRepository users, IMemoryCache cache)
     {
-        if (!context.Request.Path.StartsWithSegments("/api") || HttpMethods.IsOptions(context.Request.Method))
+        // The Stripe webhook has no API key; it's authenticated by its Stripe-Signature header instead
+        if (!context.Request.Path.StartsWithSegments("/api") || HttpMethods.IsOptions(context.Request.Method)
+            || context.Request.Path.Equals(Endpoints.BillingEndpoints.WebhookPath, StringComparison.OrdinalIgnoreCase))
         {
             await _next(context);
             return;

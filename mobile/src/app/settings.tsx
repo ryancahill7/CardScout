@@ -7,6 +7,7 @@ import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text
 
 import { Button, ErrorBanner, Field, SectionTitle, Surface } from '@/components/ui';
 import { sendTestPush } from '@/lib/api';
+import { openBillingPortal, openCheckout, useBillingStatus } from '@/lib/billing';
 import { registerForPush } from '@/lib/notifications';
 import { DEFAULT_SETTINGS, updateSettings, useSettings } from '@/lib/settings';
 import { colors, fonts, radius, space } from '@/lib/theme';
@@ -91,6 +92,8 @@ export default function SettingsScreen() {
         }}
       />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+        <SubscriptionSection />
+
         <Surface>
           <SectionTitle>Card shows</SectionTitle>
           <Text style={styles.hint}>
@@ -171,7 +174,89 @@ export default function SettingsScreen() {
   );
 }
 
+// Current plan plus Upgrade (Stripe Checkout) or Manage (Stripe Billing Portal), both in the browser.
+// The status refetches when the browser closes and whenever the app returns to the foreground.
+function SubscriptionSection() {
+  const status = useBillingStatus();
+  const open = useMutation({
+    mutationFn: (target: 'month' | 'year' | 'portal') => (target === 'portal' ? openBillingPortal() : openCheckout(target)),
+    onSettled: () => void status.refetch(),
+  });
+
+  const s = status.data;
+  const isPro = s?.plan === 'pro';
+  const until = s?.currentPeriodEnd ? new Date(s.currentPeriodEnd).toLocaleDateString() : null;
+  const detail = !s
+    ? null
+    : isPro
+      ? s.cancelAtPeriodEnd
+        ? `Cancels on ${until ?? 'the end of this period'}.`
+        : until
+          ? `Renews on ${until}.`
+          : null
+      : s.status === 'past_due' || s.status === 'unpaid'
+        ? 'Your last payment failed. Update your card to get Pro back.'
+        : s.billingEnabled
+          ? 'Upgrade to Pro for more scans and alerts. Payment is handled by Stripe in your browser.'
+          : 'Subscriptions are not available yet.';
+
+  return (
+    <Surface>
+      <SectionTitle
+        right={
+          s && (
+            <View style={[styles.planPill, isPro && styles.planPillPro]}>
+              <Text style={[styles.planPillText, isPro && { color: colors.onPrimary }]}>{isPro ? 'PRO' : 'FREE'}</Text>
+            </View>
+          )
+        }>
+        Subscription
+      </SectionTitle>
+      {status.isPending && <Text style={styles.hint}>Checking your plan…</Text>}
+      {status.isError && <ErrorBanner message={status.error.message} onRetry={() => void status.refetch()} />}
+      {detail && <Text style={styles.hint}>{detail}</Text>}
+      {s && (isPro || s.status != null) && (
+        <Button
+          title="Manage subscription"
+          icon="card-outline"
+          variant="secondary"
+          onPress={() => open.mutate('portal')}
+          loading={open.isPending && open.variables === 'portal'}
+        />
+      )}
+      {s && !isPro && s.billingEnabled && (
+        <>
+          <Button
+            title="Upgrade to Pro (monthly)"
+            icon="sparkles-outline"
+            onPress={() => open.mutate('month')}
+            loading={open.isPending && open.variables === 'month'}
+          />
+          {s.yearlyAvailable && (
+            <Button
+              title="Upgrade yearly"
+              variant="ghost"
+              onPress={() => open.mutate('year')}
+              loading={open.isPending && open.variables === 'year'}
+            />
+          )}
+        </>
+      )}
+      {open.isError && <ErrorBanner message={open.error.message} />}
+    </Surface>
+  );
+}
+
 const styles = StyleSheet.create({
+  planPill: {
+    paddingHorizontal: space.sm,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+  },
+  planPillPro: { backgroundColor: colors.primary, borderColor: colors.primary },
+  planPillText: { fontSize: 11, fontFamily: fonts.bodyBold, color: colors.textSecondary, letterSpacing: 0.6 },
   content: { padding: space.lg, gap: space.lg, paddingBottom: 64 },
   row: { flexDirection: 'row', gap: space.md },
   label: { fontSize: 12, fontFamily: fonts.bodySemiBold, color: colors.textSecondary, letterSpacing: 0.3 },

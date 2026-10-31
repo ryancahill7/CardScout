@@ -1,5 +1,6 @@
 ﻿using CardScout.Api;
 using CardScout.Api.Endpoints;
+using CardScout.Core.Billing;
 using CardScout.Core.Comps;
 using CardScout.Core.Data;
 using CardScout.Core.Ebay;
@@ -36,6 +37,12 @@ builder.Services.AddSingleton(new WatchlistRepository(oracleConnString));
 builder.Services.AddSingleton(new PushTokenRepository(oracleConnString));
 builder.Services.AddSingleton(new PriceHistoryRepository(oracleConnString));
 builder.Services.AddSingleton(new DealsRepository(oracleConnString));
+builder.Services.AddSingleton(new SubscriptionRepository(oracleConnString));
+
+// Stripe billing. Works without keys (everyone is on the free plan and checkout returns 503).
+builder.Services.AddSingleton(config.GetSection("Stripe").Get<StripeOptions>() ?? new StripeOptions());
+builder.Services.AddSingleton<ISubscriptionService, SubscriptionService>();
+builder.Services.AddSingleton<StripeBillingService>();
 
 builder.Services.AddSingleton(new EbayAuthClient(new HttpClient(), config["Ebay:AppId"]!, config["Ebay:CertId"]!));
 builder.Services.AddSingleton(sp => new EbaySearchClient(new HttpClient(), sp.GetRequiredService<EbayAuthClient>()));
@@ -73,5 +80,6 @@ app.MapCardEndpoints();
 app.MapLotEndpoints();
 app.MapWatchlistEndpoints();
 app.MapPortfolioEndpoints();
+app.MapBillingEndpoints();
 
 app.Run();
