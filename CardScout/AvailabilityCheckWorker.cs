@@ -1,4 +1,4 @@
-﻿using CardScout.Core.Data;
+using CardScout.Core.Data;
 using CardScout.Core.Ebay;
 
 namespace CardScout;
@@ -20,7 +20,17 @@ public class AvailabilityCheckWorker : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            var itemIds = await _listingsRepo.GetActiveDealItemIdsAsync();
+            List<string> itemIds;
+            try
+            {
+                itemIds = await _listingsRepo.GetActiveDealItemIdsAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Couldn't load active deals; retrying in 15 minutes");
+                await Task.Delay(TimeSpan.FromMinutes(15), stoppingToken);
+                continue;
+            }
             int soldCount = 0;
 
             foreach (var itemId in itemIds)

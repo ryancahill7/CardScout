@@ -7,6 +7,10 @@ using CardScout.Core.Notifications;
 using CardScout.Core.Pricing;
 Oracle.ManagedDataAccess.Client.OracleConfiguration.BindByName = true;
 var builder = Host.CreateApplicationBuilder(args);
+
+// Safety net: a worker that throws stops on its own instead of shutting down every other worker.
+// Each worker should still catch, log and retry its own errors (see the loops).
+builder.Services.Configure<HostOptions>(o => o.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore);
 var config = builder.Configuration;
 
 var oracleConnString = config.GetConnectionString("Oracle")!;

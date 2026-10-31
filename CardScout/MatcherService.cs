@@ -1,4 +1,4 @@
-﻿using CardScout.Core.Data;
+using CardScout.Core.Data;
 using CardScout.Core.Ebay;
 using CardScout.Core.Flip;
 using CardScout.Core.Models;
@@ -34,7 +34,18 @@ public class MatcherService : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            var pending = await _listingsRepo.GetPendingAsync(50);
+            List<EbayListingRecord> pending;
+            try
+            {
+                pending = await _listingsRepo.GetPendingAsync(50);
+            }
+            catch (Exception ex)
+            {
+                // e.g. the DB is down: log, wait and try again rather than stopping the host
+                _logger.LogError(ex, "Couldn't load pending listings; retrying in 1 minute");
+                await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+                continue;
+            }
 
             foreach (var listing in pending)
             {
@@ -45,7 +56,14 @@ public class MatcherService : BackgroundService
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Failed to process listing {ItemId}", listing.ItemId);
-                    await _listingsRepo.UpdateMatchStatusAsync(listing.ItemId, "ERROR"); // add this
+                    try
+                    {
+                        await _listingsRepo.UpdateMatchStatusAsync(listing.ItemId, "ERROR");
+                    }
+                    catch (Exception statusEx)
+                    {
+                        _logger.LogError(statusEx, "Couldn't mark listing {ItemId} as ERROR", listing.ItemId);
+                    }
                 }
             }
 
