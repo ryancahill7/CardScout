@@ -34,7 +34,7 @@ public static class Plans
         Features:
         [
             "AI card and lot scans up to a monthly limit (about 50 cards)",
-            "Live SportsCardsPro prices and full grade ladder",
+            "Live market prices for every grade",
             "Show mode flip verdicts",
             "Deals feed and active eBay listings",
             "3 eBay watchlists with alerts",

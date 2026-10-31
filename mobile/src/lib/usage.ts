@@ -23,7 +23,7 @@ const FALLBACK_PLANS: Plan[] = [
     maxWatchlists: 3,
     features: [
       'AI card and lot scans up to a monthly limit',
-      'Live SportsCardsPro prices and full grade ladder',
+      'Live market prices for every grade',
       'Show mode flip verdicts',
       'Deals feed and active eBay listings',
       '3 eBay watchlists with alerts',
